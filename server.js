@@ -1,12 +1,12 @@
-// server.js - Main server file for the DNP DS-RX1HS WiFi Print Server
-
+// server.js - Main server file for DNP DS-RX1HS PrintNode Server
 const express = require('express');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const cors = require('cors');
-const printer = require('printer');
 const morgan = require('morgan');
+const { getPrinters, print } = require('pdf-to-printer');
+const sharp = require('sharp');
 const { v4: uuidv4 } = require('uuid');
 
 // Initialize Express app
@@ -52,10 +52,12 @@ const upload = multer({
   }
 });
 
-// Get available printers
-app.get('/api/printers', (req, res) => {
+// API Routes
+
+// Get list of available printers
+app.get('/api/printers', async (req, res) => {
   try {
-    const printers = printer.getPrinters();
+    const printers = await getPrinters();
     res.json({ printers });
   } catch (err) {
     console.error('Error getting printers:', err);
@@ -63,51 +65,67 @@ app.get('/api/printers', (req, res) => {
   }
 });
 
-// Get printer info
-app.get('/api/printers/:printerName', (req, res) => {
+// Get default printer
+app.get('/api/printers/default', async (req, res) => {
   try {
-    const printerName = req.params.printerName;
-    const printerInfo = printer.getPrinter(printerName);
-    res.json({ printer: printerInfo });
+    const printers = await getPrinters();
+    const defaultPrinter = printers.find(p => p.isDefault)?.name;
+    res.json({ defaultPrinter });
   } catch (err) {
-    console.error('Error getting printer info:', err);
-    res.status(500).json({ error: 'Failed to get printer info' });
+    console.error('Error getting default printer:', err);
+    res.status(500).json({ error: 'Failed to get default printer' });
   }
 });
 
 // Print file
-app.post('/api/print', upload.single('file'), (req, res) => {
+app.post('/api/print', upload.single('file'), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: 'No file uploaded' });
   }
 
   try {
-    const { printerName, options = {} } = req.body;
+    const { printerName, copies = 1 } = req.body;
     const filePath = req.file.path;
-    
-    // Parse print options
-    const printOptions = {
-      printer: printerName,
-      ...JSON.parse(options),
-    };
 
-    // Print the file
-    printer.printFile({
-      filename: filePath,
-      printer: printOptions.printer,
-      success: (jobID) => {
-        console.log(`Print job submitted with ID: ${jobID}`);
-        res.json({ 
-          success: true, 
-          message: 'Print job submitted successfully', 
-          jobID,
-          fileName: req.file.filename
-        });
-      },
-      error: (err) => {
-        console.error('Error printing file:', err);
-        res.status(500).json({ error: 'Failed to print file' });
-      }
+    // If no printer specified, get default printer
+    let targetPrinter = printerName;
+    if (!targetPrinter) {
+      const printers = await getPrinters();
+      targetPrinter = printers.find(p => p.isDefault)?.name;
+    }
+
+    if (!targetPrinter) {
+      return res.status(400).json({ error: 'No printer specified and no default printer found' });
+    }
+
+    // If file is an image, convert it to PDF first
+    if (path.extname(filePath).toLowerCase() !== '.pdf') {
+      const pdfPath = filePath + '.pdf';
+      await sharp(filePath)
+        .toFormat('pdf')
+        .toFile(pdfPath);
+
+      // Print the converted PDF
+      await print(pdfPath, {
+        printer: targetPrinter,
+        copies: parseInt(copies)
+      });
+
+      // Clean up the temporary PDF file
+      fs.unlinkSync(pdfPath);
+    } else {
+      // Print PDF directly
+      await print(filePath, {
+        printer: targetPrinter,
+        copies: parseInt(copies)
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Print job submitted successfully',
+      fileName: req.file.filename,
+      printer: targetPrinter
     });
   } catch (err) {
     console.error('Error processing print request:', err);
@@ -115,15 +133,22 @@ app.post('/api/print', upload.single('file'), (req, res) => {
   }
 });
 
-// Get print job status
-app.get('/api/jobs/:jobId', (req, res) => {
-  // This would ideally connect to the printer's job queue
-  // For now, we'll just return a placeholder response
-  res.json({ 
-    jobId: req.params.jobId,
-    status: 'completed',
-    timestamp: new Date()
-  });
+// Get printer status
+app.get('/api/printers/:printerName/status', async (req, res) => {
+  try {
+    const printerName = req.params.printerName;
+    const printers = await getPrinters();
+    const printer = printers.find(p => p.name === printerName);
+
+    if (!printer) {
+      return res.status(404).json({ error: 'Printer not found' });
+    }
+
+    res.json(printer);
+  } catch (err) {
+    console.error('Error getting printer status:', err);
+    res.status(500).json({ error: 'Failed to get printer status' });
+  }
 });
 
 // Root route serves the admin panel
@@ -132,6 +157,13 @@ app.get('/', (req, res) => {
 });
 
 // Start the server
-app.listen(PORT, () => {
-  console.log(`DNP Printer Server running on port ${PORT}`);
+app.listen(PORT, '0.0.0.0', async () => {
+  console.log(`Printer Server running on port ${PORT}`);
+  try {
+    const printers = await getPrinters();
+    console.log('Available printers:');
+    console.log(printers);
+  } catch (err) {
+    console.error('Error getting printers:', err);
+  }
 });

@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Printer Server</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+
+        .container {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            color: #666;
+        }
+
+        select,
+        input {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            width: 100%;
+        }
+
+        button:hover {
+            background-color: #45a049;
+        }
+
+        #status {
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 4px;
+        }
+
+        .success {
+            background-color: #dff0d8;
+            color: #3c763d;
+        }
+
+        .error {
+            background-color: #f2dede;
+            color: #a94442;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>Printer Server</h1>
+
+        <div class="form-group">
+            <label for="printerSelect">Select Printer:</label>
+            <select id="printerSelect">
+                <option value="">Loading printers...</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="fileInput">Select File to Print:</label>
+            <input type="file" id="fileInput" accept=".pdf,.jpg,.jpeg,.png,.gif">
+        </div>
+
+        <div class="form-group">
+            <label for="copies">Number of Copies:</label>
+            <input type="number" id="copies" value="1" min="1">
+        </div>
+
+        <button onclick="printFile()">Print</button>
+
+        <div id="status"></div>
+    </div>
+
+    <script>
+        // Load available printers when page loads
+        window.onload = async function () {
+            try {
+                const response = await fetch('/api/printers');
+                const data = await response.json();
+                const printerSelect = document.getElementById('printerSelect');
+
+                printerSelect.innerHTML = '';
+                data.printers.forEach(printer => {
+                    const option = document.createElement('option');
+                    option.value = printer.name;
+                    option.textContent = printer.name;
+                    printerSelect.appendChild(option);
+                });
+
+                // Get default printer
+                const defaultResponse = await fetch('/api/printers/default');
+                const defaultData = await defaultResponse.json();
+                if (defaultData.defaultPrinter) {
+                    printerSelect.value = defaultData.defaultPrinter;
+                }
+            } catch (error) {
+                showStatus('Error loading printers: ' + error.message, false);
+            }
+        };
+
+        async function printFile() {
+            const fileInput = document.getElementById('fileInput');
+            const printerSelect = document.getElementById('printerSelect');
+            const copies = document.getElementById('copies').value;
+            const statusDiv = document.getElementById('status');
+
+            if (!fileInput.files.length) {
+                showStatus('Please select a file to print', false);
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+            formData.append('printerName', printerSelect.value);
+            formData.append('copies', copies);
+
+            try {
+                const response = await fetch('/api/print', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    showStatus('Print job submitted successfully!', true);
+                } else {
+                    showStatus('Error: ' + result.error, false);
+                }
+            } catch (error) {
+                showStatus('Error submitting print job: ' + error.message, false);
+            }
+        }
+
+        function showStatus(message, isSuccess) {
+            const statusDiv = document.getElementById('status');
+            statusDiv.textContent = message;
+            statusDiv.className = isSuccess ? 'success' : 'error';
+        }
+    </script>
+</body>
+
+</html>

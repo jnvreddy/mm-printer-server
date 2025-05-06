@@ -13,6 +13,18 @@ const { v4: uuidv4 } = require('uuid');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// DNP DS-RX1HS specific configurations
+const DNP_PRINTER_CONFIG = {
+  name: 'DNP DS-RX1HS',
+  paperSizes: [
+    { name: '2x6', width: 2, height: 6 },
+    { name: '4x6', width: 4, height: 6 },
+    { name: '6x8', width: 6, height: 8 },
+    { name: '6x9', width: 6, height: 9 }
+  ],
+  defaultSize: '4x6'
+};
+
 // Configure middleware
 app.use(cors());
 app.use(express.json());
@@ -39,15 +51,15 @@ const upload = multer({
   storage,
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
   fileFilter: (req, file, cb) => {
-    // Only allow image files and PDFs
-    const filetypes = /jpeg|jpg|png|gif|pdf/;
+    // Only allow image files
+    const filetypes = /jpeg|jpg|png/;
     const extname = filetypes.test(path.extname(file.originalname).toLowerCase());
     const mimetype = filetypes.test(file.mimetype);
 
     if (extname && mimetype) {
       return cb(null, true);
     } else {
-      cb(new Error('Only images and PDF files are allowed!'));
+      cb(new Error('Only JPEG and PNG images are allowed!'));
     }
   }
 });
@@ -58,6 +70,14 @@ const upload = multer({
 app.get('/api/printers', async (req, res) => {
   try {
     const printers = await getPrinters();
+    // Add DNP printer if not found
+    if (!printers.find(p => p.name === DNP_PRINTER_CONFIG.name)) {
+      printers.push({
+        name: DNP_PRINTER_CONFIG.name,
+        deviceId: DNP_PRINTER_CONFIG.name,
+        paperSizes: DNP_PRINTER_CONFIG.paperSizes.map(size => size.name)
+      });
+    }
     res.json({ printers });
   } catch (err) {
     console.error('Error getting printers:', err);
@@ -65,15 +85,13 @@ app.get('/api/printers', async (req, res) => {
   }
 });
 
-// Get default printer
-app.get('/api/printers/default', async (req, res) => {
-  try {
-    const printers = await getPrinters();
-    const defaultPrinter = printers.find(p => p.isDefault)?.name;
-    res.json({ defaultPrinter });
-  } catch (err) {
-    console.error('Error getting default printer:', err);
-    res.status(500).json({ error: 'Failed to get default printer' });
+// Get printer paper sizes
+app.get('/api/printers/:printerName/sizes', (req, res) => {
+  const printerName = req.params.printerName;
+  if (printerName === DNP_PRINTER_CONFIG.name) {
+    res.json({ sizes: DNP_PRINTER_CONFIG.paperSizes });
+  } else {
+    res.status(404).json({ error: 'Printer not found or not supported' });
   }
 });
 
@@ -84,48 +102,49 @@ app.post('/api/print', upload.single('file'), async (req, res) => {
   }
 
   try {
-    const { printerName, copies = 1 } = req.body;
+    const { printerName, copies = 1, paperSize = DNP_PRINTER_CONFIG.defaultSize } = req.body;
     const filePath = req.file.path;
 
-    // If no printer specified, get default printer
-    let targetPrinter = printerName;
-    if (!targetPrinter) {
-      const printers = await getPrinters();
-      targetPrinter = printers.find(p => p.isDefault)?.name;
+    // Validate paper size
+    const selectedSize = DNP_PRINTER_CONFIG.paperSizes.find(size => size.name === paperSize);
+    if (!selectedSize) {
+      return res.status(400).json({ error: 'Invalid paper size' });
     }
 
-    if (!targetPrinter) {
-      return res.status(400).json({ error: 'No printer specified and no default printer found' });
-    }
+    // Resize image to match paper size
+    const resizedImagePath = path.join(path.dirname(filePath), `resized-${path.basename(filePath)}`);
+    await sharp(filePath)
+      .resize({
+        width: selectedSize.width * 300, // Convert inches to pixels (300 DPI)
+        height: selectedSize.height * 300,
+        fit: 'contain',
+        background: { r: 255, g: 255, b: 255, alpha: 1 }
+      })
+      .toFile(resizedImagePath);
 
-    // If file is an image, convert it to PDF first
-    if (path.extname(filePath).toLowerCase() !== '.pdf') {
-      const pdfPath = filePath + '.pdf';
-      await sharp(filePath)
-        .toFormat('pdf')
-        .toFile(pdfPath);
+    // Convert to PDF
+    const pdfPath = resizedImagePath + '.pdf';
+    await sharp(resizedImagePath)
+      .toFormat('pdf')
+      .toFile(pdfPath);
 
-      // Print the converted PDF
-      await print(pdfPath, {
-        printer: targetPrinter,
-        copies: parseInt(copies)
-      });
+    // Print the PDF
+    await print(pdfPath, {
+      printer: printerName || DNP_PRINTER_CONFIG.name,
+      copies: parseInt(copies)
+    });
 
-      // Clean up the temporary PDF file
-      fs.unlinkSync(pdfPath);
-    } else {
-      // Print PDF directly
-      await print(filePath, {
-        printer: targetPrinter,
-        copies: parseInt(copies)
-      });
-    }
+    // Clean up temporary files
+    fs.unlinkSync(resizedImagePath);
+    fs.unlinkSync(pdfPath);
+    fs.unlinkSync(filePath);
 
     res.json({
       success: true,
       message: 'Print job submitted successfully',
       fileName: req.file.filename,
-      printer: targetPrinter
+      printer: printerName || DNP_PRINTER_CONFIG.name,
+      paperSize: selectedSize.name
     });
   } catch (err) {
     console.error('Error processing print request:', err);
@@ -158,7 +177,7 @@ app.get('/', (req, res) => {
 
 // Start the server
 app.listen(PORT, '0.0.0.0', async () => {
-  console.log(`Printer Server running on port ${PORT}`);
+  console.log(`DNP Printer Server running on port ${PORT}`);
   try {
     const printers = await getPrinters();
     console.log('Available printers:');

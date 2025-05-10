@@ -106,7 +106,6 @@
     </div>
 
     <script>
-        // Load available printers when page loads
         window.onload = async function () {
             try {
                 const response = await fetch('/api/printers');
@@ -121,12 +120,7 @@
                     printerSelect.appendChild(option);
                 });
 
-                // Get default printer
-                // const defaultResponse = await fetch('/api/printers/default');
-                // const defaultData = await defaultResponse.json();
-                // if (defaultData.defaultPrinter) {
-                //     printerSelect.value = defaultData.defaultPrinter;
-                // }
+
             } catch (error) {
                 showStatus('Error loading printers: ' + error.message, false);
             }

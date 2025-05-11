@@ -8,10 +8,55 @@ const morgan = require('morgan');
 const { getPrinters, print } = require('pdf-to-printer');
 const sharp = require('sharp');
 const { v4: uuidv4 } = require('uuid');
+const WebSocket = require('ws');
 
 // Initialize Express app
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Initialize WebSocket server
+const wss = new WebSocket.Server({ noServer: true });
+
+// Store connected clients
+const clients = new Set();
+
+// WebSocket connection handler
+wss.on('connection', (ws) => {
+  clients.add(ws);
+
+  ws.on('close', () => {
+    clients.delete(ws);
+  });
+});
+
+// Function to broadcast printer status to all connected clients
+const broadcastPrinterStatus = async (printerName) => {
+  try {
+    const printers = await getPrinters();
+    const printer = printers.find(p => p.name === printerName);
+
+    if (printer) {
+      const status = {
+        type: 'printer_status',
+        printer: {
+          name: printer.name,
+          status: printer.status,
+          paperSizes: DNP_PRINTER_CONFIG.paperSizes,
+          isConnected: true
+        },
+        timestamp: new Date().toISOString()
+      };
+
+      clients.forEach(client => {
+        if (client.readyState === WebSocket.OPEN) {
+          client.send(JSON.stringify(status));
+        }
+      });
+    }
+  } catch (error) {
+    console.error('Error broadcasting printer status:', error);
+  }
+};
 
 // DNP DS-RX1HS specific configurations
 const DNP_PRINTER_CONFIG = {
@@ -26,11 +71,27 @@ const DNP_PRINTER_CONFIG = {
 };
 
 // Configure middleware
-app.use(cors());
+app.use(cors({
+  origin: process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : '*',
+  methods: ['GET', 'POST'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(morgan('dev')); // Logging
 app.use(express.static(path.join(__dirname, 'public')));
+
+// Authentication middleware
+const authenticateRequest = (req, res, next) => {
+  const apiKey = req.headers.authorization;
+  if (!apiKey || apiKey !== process.env.API_KEY) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  next();
+};
+
+// Apply authentication to all routes
+app.use('/api/printer', authenticateRequest);
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
@@ -64,109 +125,93 @@ const upload = multer({
   }
 });
 
-// API Routes
-
-// Get list of available printers
-app.get('/api/printers', async (req, res) => {
+// Single endpoint for all printer operations
+app.all('/api/printer', upload.single('file'), async (req, res) => {
   try {
-    const printers = await getPrinters();
-    // Add DNP printer if not found
-    if (!printers.find(p => p.name === DNP_PRINTER_CONFIG.name)) {
-      printers.push({
-        name: DNP_PRINTER_CONFIG.name,
-        deviceId: DNP_PRINTER_CONFIG.name,
-        paperSizes: DNP_PRINTER_CONFIG.paperSizes.map(size => size.name)
+    // GET request - Return printer status and information
+    if (req.method === 'GET') {
+      const printers = await getPrinters();
+      const printer = printers.find(p => p.name === DNP_PRINTER_CONFIG.name);
+
+      if (!printer) {
+        return res.json({
+          status: 'disconnected',
+          printer: {
+            name: DNP_PRINTER_CONFIG.name,
+            paperSizes: DNP_PRINTER_CONFIG.paperSizes,
+            isConnected: false
+          }
+        });
+      }
+
+      return res.json({
+        status: 'connected',
+        printer: {
+          name: printer.name,
+          status: printer.status,
+          paperSizes: DNP_PRINTER_CONFIG.paperSizes,
+          isConnected: true
+        }
       });
     }
-    res.json({ printers });
-  } catch (err) {
-    console.error('Error getting printers:', err);
-    res.status(500).json({ error: 'Failed to get printers' });
-  }
-});
 
-// Get printer paper sizes
-app.get('/api/printers/:printerName/sizes', (req, res) => {
-  const printerName = req.params.printerName;
-  if (printerName === DNP_PRINTER_CONFIG.name) {
-    res.json({ sizes: DNP_PRINTER_CONFIG.paperSizes });
-  } else {
-    res.status(404).json({ error: 'Printer not found or not supported' });
-  }
-});
+    // POST request - Handle print job
+    if (req.method === 'POST') {
+      if (!req.file) {
+        return res.status(400).json({ error: 'No file uploaded' });
+      }
 
-// Print file
-app.post('/api/print', upload.single('file'), async (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({ error: 'No file uploaded' });
-  }
+      const { copies = 1, paperSize = DNP_PRINTER_CONFIG.defaultSize } = req.body;
+      const filePath = req.file.path;
 
-  try {
-    const { printerName, copies = 1, paperSize = DNP_PRINTER_CONFIG.defaultSize } = req.body;
-    const filePath = req.file.path;
+      // Validate paper size
+      const selectedSize = DNP_PRINTER_CONFIG.paperSizes.find(size => size.name === paperSize);
+      if (!selectedSize) {
+        return res.status(400).json({ error: 'Invalid paper size' });
+      }
 
-    // Validate paper size
-    const selectedSize = DNP_PRINTER_CONFIG.paperSizes.find(size => size.name === paperSize);
-    if (!selectedSize) {
-      return res.status(400).json({ error: 'Invalid paper size' });
+      // Resize image to match paper size
+      const resizedImagePath = path.join(path.dirname(filePath), `resized-${path.basename(filePath)}`);
+      await sharp(filePath)
+        .resize({
+          width: selectedSize.width * 300, // Convert inches to pixels (300 DPI)
+          height: selectedSize.height * 300,
+          fit: 'contain',
+          background: { r: 255, g: 255, b: 255, alpha: 1 }
+        })
+        .toFile(resizedImagePath);
+
+      // Convert to PDF
+      const pdfPath = resizedImagePath + '.pdf';
+      await sharp(resizedImagePath)
+        .toFormat('pdf')
+        .toFile(pdfPath);
+
+      // Print the PDF
+      await print(pdfPath, {
+        printer: DNP_PRINTER_CONFIG.name,
+        copies: parseInt(copies)
+      });
+
+      // Clean up temporary files
+      fs.unlinkSync(resizedImagePath);
+      fs.unlinkSync(pdfPath);
+      fs.unlinkSync(filePath);
+
+      return res.json({
+        success: true,
+        message: 'Print job submitted successfully',
+        fileName: req.file.filename,
+        printer: DNP_PRINTER_CONFIG.name,
+        paperSize: selectedSize.name
+      });
     }
 
-    // Resize image to match paper size
-    const resizedImagePath = path.join(path.dirname(filePath), `resized-${path.basename(filePath)}`);
-    await sharp(filePath)
-      .resize({
-        width: selectedSize.width * 300, // Convert inches to pixels (300 DPI)
-        height: selectedSize.height * 300,
-        fit: 'contain',
-        background: { r: 255, g: 255, b: 255, alpha: 1 }
-      })
-      .toFile(resizedImagePath);
-
-    // Convert to PDF
-    const pdfPath = resizedImagePath + '.pdf';
-    await sharp(resizedImagePath)
-      .toFormat('pdf')
-      .toFile(pdfPath);
-
-    // Print the PDF
-    await print(pdfPath, {
-      printer: printerName || DNP_PRINTER_CONFIG.name,
-      copies: parseInt(copies)
-    });
-
-    // Clean up temporary files
-    fs.unlinkSync(resizedImagePath);
-    fs.unlinkSync(pdfPath);
-    fs.unlinkSync(filePath);
-
-    res.json({
-      success: true,
-      message: 'Print job submitted successfully',
-      fileName: req.file.filename,
-      printer: printerName || DNP_PRINTER_CONFIG.name,
-      paperSize: selectedSize.name
-    });
+    // Method not allowed
+    return res.status(405).json({ error: 'Method not allowed' });
   } catch (err) {
-    console.error('Error processing print request:', err);
-    res.status(500).json({ error: 'Failed to process print request' });
-  }
-});
-
-// Get printer status
-app.get('/api/printers/:printerName/status', async (req, res) => {
-  try {
-    const printerName = req.params.printerName;
-    const printers = await getPrinters();
-    const printer = printers.find(p => p.name === printerName);
-
-    if (!printer) {
-      return res.status(404).json({ error: 'Printer not found' });
-    }
-
-    res.json(printer);
-  } catch (err) {
-    console.error('Error getting printer status:', err);
-    res.status(500).json({ error: 'Failed to get printer status' });
+    console.error('Error processing request:', err);
+    return res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -176,13 +221,25 @@ app.get('/', (req, res) => {
 });
 
 // Start the server
-app.listen(PORT, '0.0.0.0', async () => {
+const server = app.listen(PORT, '0.0.0.0', async () => {
   console.log(`DNP Printer Server running on port ${PORT}`);
   try {
     const printers = await getPrinters();
     console.log('Available printers:');
     console.log(printers);
+
+    // Start periodic status updates
+    setInterval(() => {
+      broadcastPrinterStatus(DNP_PRINTER_CONFIG.name);
+    }, 5000); // Update every 5 seconds
   } catch (err) {
     console.error('Error getting printers:', err);
   }
+});
+
+// Upgrade HTTP server to WebSocket
+server.on('upgrade', (request, socket, head) => {
+  wss.handleUpgrade(request, socket, head, (ws) => {
+    wss.emit('connection', ws, request);
+  });
 });

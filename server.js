@@ -1,4 +1,3 @@
-// server.js - Fixed routes and error handling
 const express = require('express');
 const multer = require('multer');
 const path = require('path');
@@ -11,28 +10,21 @@ const { v4: uuidv4 } = require('uuid');
 const WebSocket = require('ws');
 require('dotenv').config();
 
-// Global error handler for uncaught exceptions to prevent server crashes
 process.on('uncaughtException', (error) => {
   console.error('UNCAUGHT EXCEPTION - keeping process alive:', error);
-  // Optionally log to external logging service here
 });
 
 process.on('unhandledRejection', (reason, promise) => {
   console.error('UNHANDLED REJECTION - keeping process alive. Reason:', reason);
-  // Optionally log to external logging service here
 });
 
-// Initialize Express app
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Initialize WebSocket server
 const wss = new WebSocket.Server({ noServer: true });
 
-// Store connected clients
 const clients = new Set();
 
-// Safely send WebSocket message with error handling
 const safeSendMessage = (client, message) => {
   try {
     if (client.readyState === WebSocket.OPEN) {
@@ -40,17 +32,14 @@ const safeSendMessage = (client, message) => {
     }
   } catch (error) {
     console.error('Error sending WebSocket message:', error);
-    // Don't throw the error - just log it to prevent crashes
   }
 };
 
-// WebSocket connection handler
 wss.on('connection', (ws) => {
   try {
     clients.add(ws);
     console.log(`WebSocket client connected (total: ${clients.size})`);
 
-    // Send initial printer status
     broadcastPrinterStatus(DNP_PRINTER_CONFIG.name);
 
     ws.on('close', () => {
@@ -75,7 +64,6 @@ wss.on('connection', (ws) => {
   }
 });
 
-// DNP DS-RX1HS specific configurations
 const DNP_PRINTER_CONFIG = {
   name: 'DNP DS-RX1HS',
   paperSizes: [
@@ -87,17 +75,15 @@ const DNP_PRINTER_CONFIG = {
   defaultSize: '4x6'
 };
 
-// Safe wrapper for getPrinters to prevent crashes
 const safeGetPrinters = async () => {
   try {
     return await getPrinters();
   } catch (error) {
     console.error('Error getting printers:', error);
-    return []; // Return empty array instead of crashing
+    return []; 
   }
 };
 
-// Function to broadcast printer status to all connected clients
 const broadcastPrinterStatus = async (printerName) => {
   try {
     const printers = await safeGetPrinters();
@@ -119,7 +105,6 @@ const broadcastPrinterStatus = async (printerName) => {
         safeSendMessage(client, status);
       });
     } else {
-      // Printer not found, send manual config as fallback
       const offlineStatus = {
         type: 'printer_status',
         printer: {
@@ -138,7 +123,6 @@ const broadcastPrinterStatus = async (printerName) => {
   } catch (error) {
     console.error('Error broadcasting printer status:', error);
 
-    // Send error status to clients
     const errorStatus = {
       type: 'printer_status',
       error: error.message,
@@ -157,27 +141,24 @@ const broadcastPrinterStatus = async (printerName) => {
   }
 };
 
-// Configure middleware
 app.use(cors({
   origin: '*',
   methods: ['GET', 'POST'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 app.use(express.json({ 
-  limit: '10mb'  // Limit JSON body size
+  limit: '10mb'
 }));
 app.use(express.urlencoded({ 
   extended: true,
-  limit: '10mb' // Limit URL-encoded body size
+  limit: '10mb' 
 }));
 
-// Add request ID to each request for better debugging
 app.use((req, res, next) => {
   req.id = uuidv4();
   next();
 });
 
-// Custom logger
 app.use(morgan((tokens, req, res) => {
   return [
     `[${new Date().toISOString()}]`,
@@ -194,7 +175,6 @@ app.use(express.static(path.join(__dirname, 'public')));
 const authenticateRequest = (req, res, next) => {
   try {
     const apiKey = req.headers.authorization;
-    // For development, make API key optional with a warning
     if (!process.env.API_KEY) {
       console.warn('WARNING: No API_KEY set in environment. Authentication is disabled.');
       return next();
@@ -218,10 +198,8 @@ const authenticateRequest = (req, res, next) => {
   }
 };
 
-// Apply authentication to all printer routes
 app.use('/api/printer', authenticateRequest);
 
-// Safe file cleanup function
 const safeCleanupFiles = (files) => {
   if (!Array.isArray(files)) {
     files = [files];
@@ -240,7 +218,6 @@ const safeCleanupFiles = (files) => {
   });
 };
 
-// Configure multer for file uploads
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     try {
@@ -256,7 +233,6 @@ const storage = multer.diskStorage({
   },
   filename: (req, file, cb) => {
     try {
-      // Sanitize filename
       const originalName = path.basename(file.originalname).replace(/[^a-zA-Z0-9_.]/g, '_');
       const uniqueFilename = `${Date.now()}-${uuidv4()}${path.extname(originalName)}`;
       cb(null, uniqueFilename);
@@ -267,16 +243,14 @@ const storage = multer.diskStorage({
   }
 });
 
-// Configure upload
 const upload = multer({
   storage,
   limits: { 
     fileSize: 10 * 1024 * 1024, // 10MB limit
-    files: 1 // Only 1 file allowed
+    files: 1 
   },
   fileFilter: (req, file, cb) => {
     try {
-      // Only allow image files
       const filetypes = /jpeg|jpg|png/;
       const extname = filetypes.test(path.extname(file.originalname).toLowerCase());
       const mimetype = filetypes.test(file.mimetype);
@@ -293,11 +267,9 @@ const upload = multer({
   }
 }).single('file');
 
-// Wrapper function to handle multer errors
 const handleUpload = (req, res, next) => {
   upload(req, res, (err) => {
     if (err instanceof multer.MulterError) {
-      // Multer error
       console.error(`Upload error in request ${req.id}:`, err);
       return res.status(400).json({
         success: false,
@@ -305,7 +277,6 @@ const handleUpload = (req, res, next) => {
         message: err.message || 'Error uploading file'
       });
     } else if (err) {
-      // Other error
       console.error(`Upload error in request ${req.id}:`, err);
       return res.status(400).json({
         success: false,
@@ -313,12 +284,10 @@ const handleUpload = (req, res, next) => {
         message: err.message || 'Error processing file'
       });
     }
-    // Success - proceed to next middleware
     next();
   });
 };
 
-// Function to check if a printer exists
 const printerExists = async (printerName) => {
   try {
     const printers = await safeGetPrinters();
@@ -329,7 +298,6 @@ const printerExists = async (printerName) => {
   }
 };
 
-// Function to get printer by id - In this implementation, id is just the printer name
 const getPrinterById = async (printerId) => {
   try {
     const printers = await safeGetPrinters();
@@ -340,14 +308,12 @@ const getPrinterById = async (printerId) => {
   }
 };
 
-// Define API Routes
 // 1. GET /api/printer - Return all printers
 app.get('/api/printer', async (req, res) => {
   try {
     console.log(`[${req.id}] Fetching all printers`);
     const printers = await safeGetPrinters();
     
-    // Format for consistent response
     const formattedPrinters = printers.map(printer => ({
       id: printer.name,
       name: printer.name,
@@ -396,7 +362,6 @@ app.get('/api/printer/:printerid', async (req, res) => {
       });
     }
 
-    // Return enhanced printer details with paper sizes
     console.log(`[${req.id}] Returning details for printer: ${printerId}`);
     return res.json({
       success: true,
@@ -444,15 +409,12 @@ app.post('/api/printer/:printerid', handleUpload, async (req, res) => {
       });
     }
 
-    // Add the uploaded file to cleanup list
     filesToCleanup.push(req.file.path);
     
-    // Check if the printer exists
     console.log(`[${req.id}] Checking if printer exists: ${printerId}`);
     const printerAvailable = await printerExists(printerId);
     if (!printerAvailable) {
       console.log(`[${req.id}] Printer not found: ${printerId}`);
-      // Clean up file
       safeCleanupFiles(filesToCleanup);
 
       return res.status(404).json({
@@ -462,18 +424,15 @@ app.post('/api/printer/:printerid', handleUpload, async (req, res) => {
       });
     }
 
-    // Default to 1 copy and default paper size if not specified
     const copies = req.body.copies ? parseInt(req.body.copies, 10) || 1 : 1;
     const paperSize = req.body.paperSize || DNP_PRINTER_CONFIG.defaultSize;
     const filePath = req.file.path;
 
     console.log(`[${req.id}] Print parameters - paperSize: ${paperSize}, copies: ${copies}`);
 
-    // Validate paper size
     const selectedSize = DNP_PRINTER_CONFIG.paperSizes.find(size => size.name === paperSize);
     if (!selectedSize) {
       console.log(`[${req.id}] Invalid paper size: ${paperSize}`);
-      // Clean up file
       safeCleanupFiles(filesToCleanup);
 
       return res.status(400).json({ 
@@ -483,7 +442,6 @@ app.post('/api/printer/:printerid', handleUpload, async (req, res) => {
       });
     }
 
-    // Resize image to match paper size
     console.log(`[${req.id}] Resizing image for paper size: ${paperSize}`);
     const resizedImagePath = path.join(path.dirname(filePath), `resized-${path.basename(filePath)}`);
     filesToCleanup.push(resizedImagePath);
@@ -491,7 +449,7 @@ app.post('/api/printer/:printerid', handleUpload, async (req, res) => {
     try {
       await sharp(filePath)
         .resize({
-          width: selectedSize.width * 300, // Convert inches to pixels (300 DPI)
+          width: selectedSize.width * 300, 
           height: selectedSize.height * 300,
           fit: 'contain',
           background: { r: 255, g: 255, b: 255, alpha: 1 }
@@ -527,7 +485,6 @@ app.post('/api/printer/:printerid', handleUpload, async (req, res) => {
       });
     }
 
-    // Clean up temporary files
     console.log(`[${req.id}] Cleaning up temporary files`);
     safeCleanupFiles(filesToCleanup);
 
@@ -548,7 +505,6 @@ app.post('/api/printer/:printerid', handleUpload, async (req, res) => {
   } catch (err) {
     console.error(`[${req.id}] Error processing print request:`, err);
     
-    // Clean up all temp files in case of error
     if (filesToCleanup.length > 0) {
       console.log(`[${req.id}] Cleaning up ${filesToCleanup.length} files after error`);
       safeCleanupFiles(filesToCleanup);
@@ -563,12 +519,10 @@ app.post('/api/printer/:printerid', handleUpload, async (req, res) => {
   }
 });
 
-// Root route serves the admin panel
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Health check endpoint
 app.get('/health', (req, res) => {
   res.json({
     status: 'UP',
@@ -586,16 +540,13 @@ app.use('/api', (req, res) => {
   });
 });
 
-// Global error handler for Express
 app.use((err, req, res, next) => {
   console.error(`Error in request ${req.id}:`, err);
   
-  // If headers already sent, delegate to Express default error handler
   if (res.headersSent) {
     return next(err);
   }
 
-  // Send error response
   res.status(500).json({
     success: false,
     error: 'Server error',
@@ -617,7 +568,6 @@ app.use((req, res) => {
   }
 });
 
-// Create a 404.html file if it doesn't exist
 const notFoundPath = path.join(__dirname, 'public', '404.html');
 if (!fs.existsSync(notFoundPath)) {
   const notFoundDir = path.join(__dirname, 'public');
@@ -647,7 +597,6 @@ if (!fs.existsSync(notFoundPath)) {
   `);
 }
 
-// Start the server
 const server = app.listen(PORT, '0.0.0.0', async () => {
   console.log(`DNP Printer Server running on port ${PORT}`);
 
@@ -689,10 +638,8 @@ const server = app.listen(PORT, '0.0.0.0', async () => {
   }
 });
 
-// Server error handling
 server.on('error', (error) => {
   console.error('Server error:', error);
-  // Attempt to restart server if port is in use
   if (error.code === 'EADDRINUSE') {
     console.log(`Port ${PORT} is in use. Trying again in 5 seconds...`);
     setTimeout(() => {
@@ -702,7 +649,6 @@ server.on('error', (error) => {
   }
 });
 
-// Graceful shutdown
 process.on('SIGTERM', () => {
   console.log('SIGTERM received. Shutting down gracefully...');
   server.close(() => {
@@ -719,7 +665,6 @@ process.on('SIGINT', () => {
   });
 });
 
-// Upgrade HTTP server to WebSocket
 server.on('upgrade', (request, socket, head) => {
   try {
     wss.handleUpgrade(request, socket, head, (ws) => {

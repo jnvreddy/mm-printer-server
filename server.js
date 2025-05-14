@@ -9,6 +9,7 @@ const { getPrinters, print } = require('pdf-to-printer');
 const sharp = require('sharp');
 const { v4: uuidv4 } = require('uuid');
 const WebSocket = require('ws');
+require('dotenv').config();
 
 // Global error handler for uncaught exceptions to prevent server crashes
 process.on('uncaughtException', (error) => {
@@ -188,10 +189,8 @@ app.use(morgan((tokens, req, res) => {
   ].join(' ');
 }));
 
-// Serve static files
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Authentication middleware
 const authenticateRequest = (req, res, next) => {
   try {
     const apiKey = req.headers.authorization;

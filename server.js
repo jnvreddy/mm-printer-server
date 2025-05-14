@@ -422,7 +422,6 @@ app.get('/api/printer/:printerid', async (req, res) => {
 
 // 3. POST /api/printer/:printerid - Print a file to a specific printer
 app.post('/api/printer/:printerid', handleUpload, async (req, res) => {
-  // Track paths to clean up in case of errors
   const filesToCleanup = [];
   
   try {

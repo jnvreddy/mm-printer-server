@@ -508,30 +508,11 @@ app.post('/api/printer/:printerid', handleUpload, async (req, res) => {
       });
     }
 
-    // Convert to PDF
-    console.log(`[${req.id}] Converting image to PDF`);
-    const pdfPath = resizedImagePath + '.pdf';
-    filesToCleanup.push(pdfPath);
-    
-    try {
-      await sharp(resizedImagePath)
-        .toFormat('pdf')
-        .toFile(pdfPath);
-    } catch (pdfError) {
-      console.error(`[${req.id}] Error converting to PDF:`, pdfError);
-      safeCleanupFiles(filesToCleanup);
-      
-      return res.status(500).json({
-        success: false,
-        error: 'PDF conversion error',
-        message: 'Failed to convert the image to PDF format.'
-      });
-    }
+    const finalImagePath = resizedImagePath;
 
-    // Print the PDF
     console.log(`[${req.id}] Sending print job to printer: ${printerId}`);
     try {
-      await print(pdfPath, {
+      await print(finalImagePath, {
         printer: printerId,
         copies: copies
       });
@@ -550,7 +531,6 @@ app.post('/api/printer/:printerid', handleUpload, async (req, res) => {
     console.log(`[${req.id}] Cleaning up temporary files`);
     safeCleanupFiles(filesToCleanup);
 
-    // Broadcast updated printer status after print job
     broadcastPrinterStatus(printerId);
 
     console.log(`[${req.id}] Print job submitted successfully`);

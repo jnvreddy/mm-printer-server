@@ -1,5 +1,4 @@
 const express = require('express');
-const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const cors = require('cors');
@@ -218,76 +217,6 @@ const safeCleanupFiles = (files) => {
   });
 };
 
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    try {
-      const uploadDir = path.join(__dirname, 'uploads');
-      if (!fs.existsSync(uploadDir)) {
-        fs.mkdirSync(uploadDir, { recursive: true });
-      }
-      cb(null, uploadDir);
-    } catch (error) {
-      console.error('Error creating upload directory:', error);
-      cb(new Error('Could not create upload directory'));
-    }
-  },
-  filename: (req, file, cb) => {
-    try {
-      const originalName = path.basename(file.originalname).replace(/[^a-zA-Z0-9_.]/g, '_');
-      const uniqueFilename = `${Date.now()}-${uuidv4()}${path.extname(originalName)}`;
-      cb(null, uniqueFilename);
-    } catch (error) {
-      console.error('Error generating filename:', error);
-      cb(new Error('Could not generate unique filename'));
-    }
-  }
-});
-
-const upload = multer({
-  storage,
-  limits: { 
-    fileSize: 10 * 1024 * 1024, // 10MB limit
-    files: 1 
-  },
-  fileFilter: (req, file, cb) => {
-    try {
-      const filetypes = /jpeg|jpg|png/;
-      const extname = filetypes.test(path.extname(file.originalname).toLowerCase());
-      const mimetype = filetypes.test(file.mimetype);
-
-      if (extname && mimetype) {
-        return cb(null, true);
-      } else {
-        cb(new Error('Only JPEG and PNG images are allowed'));
-      }
-    } catch (error) {
-      console.error('Error in file filter:', error);
-      cb(new Error('Error processing file upload'));
-    }
-  }
-}).single('file');
-
-const handleUpload = (req, res, next) => {
-  upload(req, res, (err) => {
-    if (err instanceof multer.MulterError) {
-      console.error(`Upload error in request ${req.id}:`, err);
-      return res.status(400).json({
-        success: false,
-        error: 'Upload error',
-        message: err.message || 'Error uploading file'
-      });
-    } else if (err) {
-      console.error(`Upload error in request ${req.id}:`, err);
-      return res.status(400).json({
-        success: false,
-        error: 'File error',
-        message: err.message || 'Error processing file'
-      });
-    }
-    next();
-  });
-};
-
 const printerExists = async (printerName) => {
   try {
     const printers = await safeGetPrinters();
@@ -385,8 +314,8 @@ app.get('/api/printer/:printerid', async (req, res) => {
   }
 });
 
-// 3. POST /api/printer/:printerid - Print a file to a specific printer
-app.post('/api/printer/:printerid', handleUpload, async (req, res) => {
+// 3. POST /api/printer/:printerid - Print an image received through API
+app.post('/api/printer/:printerid', async (req, res) => {
   const filesToCleanup = [];
   
   try {
@@ -401,22 +330,19 @@ app.post('/api/printer/:printerid', handleUpload, async (req, res) => {
       });
     }
     
-    if (!req.file) {
+    // Check for image data in the request body
+    if (!req.body.imageData) {
       return res.status(400).json({ 
         success: false, 
-        error: 'No file uploaded',
-        message: 'You must upload a file to print'
+        error: 'No image data provided',
+        message: 'You must provide image data in the request body'
       });
     }
 
-    filesToCleanup.push(req.file.path);
-    
     console.log(`[${req.id}] Checking if printer exists: ${printerId}`);
     const printerAvailable = await printerExists(printerId);
     if (!printerAvailable) {
       console.log(`[${req.id}] Printer not found: ${printerId}`);
-      safeCleanupFiles(filesToCleanup);
-
       return res.status(404).json({
         success: false,
         error: 'Printer not found',
@@ -424,17 +350,16 @@ app.post('/api/printer/:printerid', handleUpload, async (req, res) => {
       });
     }
 
+    // Extract image data and parameters
+    const imageData = req.body.imageData;
     const copies = req.body.copies ? parseInt(req.body.copies, 10) || 1 : 1;
     const paperSize = req.body.paperSize || DNP_PRINTER_CONFIG.defaultSize;
-    const filePath = req.file.path;
 
     console.log(`[${req.id}] Print parameters - paperSize: ${paperSize}, copies: ${copies}`);
 
     const selectedSize = DNP_PRINTER_CONFIG.paperSizes.find(size => size.name === paperSize);
     if (!selectedSize) {
       console.log(`[${req.id}] Invalid paper size: ${paperSize}`);
-      safeCleanupFiles(filesToCleanup);
-
       return res.status(400).json({ 
         success: false, 
         error: 'Invalid paper size',
@@ -442,12 +367,25 @@ app.post('/api/printer/:printerid', handleUpload, async (req, res) => {
       });
     }
 
+    // Create a temporary directory for the image file if it doesn't exist
+    const uploadDir = path.join(__dirname, 'uploads');
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+
+    // Convert base64 image data to a file
+    const imageBuffer = Buffer.from(imageData.replace(/^data:image\/\w+;base64,/, ''), 'base64');
+    const tempImagePath = path.join(uploadDir, `${Date.now()}-${uuidv4()}.png`);
+    filesToCleanup.push(tempImagePath);
+    
+    fs.writeFileSync(tempImagePath, imageBuffer);
+
     console.log(`[${req.id}] Resizing image for paper size: ${paperSize}`);
-    const resizedImagePath = path.join(path.dirname(filePath), `resized-${path.basename(filePath)}`);
+    const resizedImagePath = path.join(path.dirname(tempImagePath), `resized-${path.basename(tempImagePath)}`);
     filesToCleanup.push(resizedImagePath);
     
     try {
-      await sharp(filePath)
+      await sharp(tempImagePath)
         .resize({
           width: selectedSize.width * 300, 
           height: selectedSize.height * 300,
@@ -495,7 +433,6 @@ app.post('/api/printer/:printerid', handleUpload, async (req, res) => {
       success: true,
       message: 'Print job submitted successfully',
       jobId: Date.now().toString(),
-      fileName: req.file.filename,
       printer: printerId,
       paperSize: selectedSize.name,
       copies: copies,

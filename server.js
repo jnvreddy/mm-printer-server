@@ -3,7 +3,8 @@ const path = require('path');
 const fs = require('fs');
 const cors = require('cors');
 const morgan = require('morgan');
-const { getPrinters, print } = require('pdf-to-printer');
+//const { getPrinters } = require('printer-lp');
+const {  getPrinters,print } = require('pdf-to-printer');
 const sharp = require('sharp');
 const { v4: uuidv4 } = require('uuid');
 const WebSocket = require('ws');
@@ -74,6 +75,7 @@ const DNP_PRINTER_CONFIG = {
   defaultSize: '4x6'
 };
 
+// fetching printers
 const safeGetPrinters = async () => {
   try {
     return await getPrinters();

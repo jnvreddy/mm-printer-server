@@ -145,7 +145,7 @@ const broadcastPrinterStatus = async (printerName) => {
 app.use(cors({
   origin: '*',
   methods: ['GET', 'POST'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Copies', 'X-Size']
 }));
 app.use(express.json({ 
   limit: '10mb'
@@ -316,147 +316,179 @@ app.get('/api/printer/:printerid', async (req, res) => {
   }
 });
 
-// 3. POST /api/printer/:printerid - Print an image received through API
-app.post('/api/printer/:printerid', async (req, res) => {
-  const filesToCleanup = [];
-  
-  try {
-    const printerId = req.params.printerid;
-    console.log(`[${req.id}] Processing print request for printer: ${printerId}`);
-    
-    if (!printerId) {
-      return res.status(400).json({
-        success: false,
-        error: 'Invalid request',
-        message: 'Printer ID is required'
-      });
-    }
-    
-    // Check for image data in the request body
-    if (!req.body.imageData) {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'No image data provided',
-        message: 'You must provide image data in the request body'
-      });
+app.use('/api/printer/:printerid', express.raw({ type: 'image/jpeg', limit: '10mb' }));
+
+app.post('/api/printer/:printerid', authenticateAPI, (req, res) => {
+  const printerId = req.params.printerid;
+  const copies = parseInt(req.headers['x-copies'] || '1', 10);
+  const size = req.headers['x-size'] || 'A4';
+
+  if (!req.body || !req.body.length) {
+    return res.status(400).json({ success: false, error: 'No image data received' });
+  }
+
+  const filename = `print_${printerId}_${Date.now()}.jpg`;
+  const filepath = path.join(__dirname, 'downloads', filename);
+  fs.mkdirSync(path.dirname(filepath), { recursive: true });
+
+  fs.writeFile(filepath, req.body, err => {
+    if (err) {
+      return res.status(500).json({ success: false, error: 'Failed to save file' });
     }
 
-    console.log(`[${req.id}] Checking if printer exists: ${printerId}`);
-    const printerAvailable = await printerExists(printerId);
-    if (!printerAvailable) {
-      console.log(`[${req.id}] Printer not found: ${printerId}`);
-      return res.status(404).json({
-        success: false,
-        error: 'Printer not found',
-        message: `The printer "${printerId}" is not connected or not available.`
-      });
-    }
-
-    // Extract image data and parameters
-    const imageData = req.body.imageData;
-    const copies = req.body.copies ? parseInt(req.body.copies, 10) || 1 : 1;
-    const paperSize = req.body.paperSize || DNP_PRINTER_CONFIG.defaultSize;
-
-    console.log(`[${req.id}] Print parameters - paperSize: ${paperSize}, copies: ${copies}`);
-
-    const selectedSize = DNP_PRINTER_CONFIG.paperSizes.find(size => size.name === paperSize);
-    if (!selectedSize) {
-      console.log(`[${req.id}] Invalid paper size: ${paperSize}`);
-      return res.status(400).json({ 
-        success: false, 
-        error: 'Invalid paper size',
-        message: `Paper size "${paperSize}" is not supported.`
-      });
-    }
-
-    // Create a temporary directory for the image file if it doesn't exist
-    const uploadDir = path.join(__dirname, 'uploads');
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
-
-    // Convert base64 image data to a file
-    const imageBuffer = Buffer.from(imageData.replace(/^data:image\/\w+;base64,/, ''), 'base64');
-    const tempImagePath = path.join(uploadDir, `${Date.now()}-${uuidv4()}.png`);
-    filesToCleanup.push(tempImagePath);
-    
-    fs.writeFileSync(tempImagePath, imageBuffer);
-
-    console.log(`[${req.id}] Resizing image for paper size: ${paperSize}`);
-    const resizedImagePath = path.join(path.dirname(tempImagePath), `resized-${path.basename(tempImagePath)}`);
-    filesToCleanup.push(resizedImagePath);
-    
-    try {
-      await sharp(tempImagePath)
-        .resize({
-          width: selectedSize.width * 300, 
-          height: selectedSize.height * 300,
-          fit: 'contain',
-          background: { r: 255, g: 255, b: 255, alpha: 1 }
-        })
-        .toFile(resizedImagePath);
-    } catch (sharpError) {
-      console.error(`[${req.id}] Error resizing image:`, sharpError);
-      safeCleanupFiles(filesToCleanup);
-      
-      return res.status(400).json({
-        success: false,
-        error: 'Image processing error',
-        message: 'Failed to resize the image. The file may be corrupted or unsupported.'
-      });
-    }
-
-    const finalImagePath = resizedImagePath;
-
-    console.log(`[${req.id}] Sending print job to printer: ${printerId}`);
-    try {
-      await print(finalImagePath, {
-        printer: printerId,
-        copies: copies
-      });
-    } catch (printError) {
-      console.error(`[${req.id}] Error printing:`, printError);
-      safeCleanupFiles(filesToCleanup);
-
-      return res.status(500).json({
-        success: false,
-        error: 'Print failed',
-        message: printError.message || 'Failed to send document to printer.'
-      });
-    }
-
-    console.log(`[${req.id}] Cleaning up temporary files`);
-    safeCleanupFiles(filesToCleanup);
-
-    broadcastPrinterStatus(printerId);
-
-    console.log(`[${req.id}] Print job submitted successfully`);
-    return res.json({
+    res.json({
       success: true,
-      message: 'Print job submitted successfully',
-      jobId: Date.now().toString(),
+      message: 'Image saved successfully',
       printer: printerId,
-      paperSize: selectedSize.name,
-      copies: copies,
+      copies,
+      size,
+      downloadUrl: `/downloads/${filename}`,
       timestamp: new Date().toISOString()
     });
-
-  } catch (err) {
-    console.error(`[${req.id}] Error processing print request:`, err);
-    
-    if (filesToCleanup.length > 0) {
-      console.log(`[${req.id}] Cleaning up ${filesToCleanup.length} files after error`);
-      safeCleanupFiles(filesToCleanup);
-    }
-    
-    return res.status(500).json({ 
-      success: false, 
-      error: 'Internal server error', 
-      message: err.message,
-      requestId: req.id
-    });
-  }
+  });
 });
+
+
+//  3. POST /api/printer/:printerid - Print an image received through API
+// app.post('/api/printer/:printerid', async (req, res) => {
+//   const filesToCleanup = [];
+//   try {
+//     const printerId = req.params.printerid;
+//     console.log(`[${req.id}] Processing print request for printer: ${printerId}`);
+    
+//     if (!printerId) {
+//       return res.status(400).json({
+//         success: false,
+//         error: 'Invalid request',
+//         message: 'Printer ID is required'
+//       });
+//     }
+    
+//     // Check for image data in the request body
+//     if (!req.body.imageData) {
+//       return res.status(400).json({ 
+//         success: false, 
+//         error: 'No image data provided',
+//         message: 'You must provide image data in the request body'
+//       });
+//     }
+
+//     console.log(`[${req.id}] Checking if printer exists: ${printerId}`);
+//     const printerAvailable = await printerExists(printerId);
+//     if (!printerAvailable) {
+//       console.log(`[${req.id}] Printer not found: ${printerId}`);
+//       return res.status(404).json({
+//         success: false,
+//         error: 'Printer not found',
+//         message: `The printer "${printerId}" is not connected or not available.`
+//       });
+//     }
+
+//     // Extract image data and parameters
+//     const imageData = req.body.imageData;
+//     const copies = req.body.copies ? parseInt(req.body.copies, 10) || 1 : 1;
+//     const paperSize = req.body.paperSize || DNP_PRINTER_CONFIG.defaultSize;
+
+//     console.log(`[${req.id}] Print parameters - paperSize: ${paperSize}, copies: ${copies}`);
+
+//     const selectedSize = DNP_PRINTER_CONFIG.paperSizes.find(size => size.name === paperSize);
+//     if (!selectedSize) {
+//       console.log(`[${req.id}] Invalid paper size: ${paperSize}`);
+//       return res.status(400).json({ 
+//         success: false, 
+//         error: 'Invalid paper size',
+//         message: `Paper size "${paperSize}" is not supported.`
+//       });
+//     }
+
+//     // Create a temporary directory for the image file if it doesn't exist
+//     const uploadDir = path.join(__dirname, 'uploads');
+//     if (!fs.existsSync(uploadDir)) {
+//       fs.mkdirSync(uploadDir, { recursive: true });
+//     }
+
+//     // Convert base64 image data to a file
+//     const imageBuffer = Buffer.from(imageData.replace(/^data:image\/\w+;base64,/, ''), 'base64');
+//     const tempImagePath = path.join(uploadDir, `${Date.now()}-${uuidv4()}.png`);
+//     filesToCleanup.push(tempImagePath);
+    
+//     fs.writeFileSync(tempImagePath, imageBuffer);
+
+//     console.log(`[${req.id}] Resizing image for paper size: ${paperSize}`);
+//     const resizedImagePath = path.join(path.dirname(tempImagePath), `resized-${path.basename(tempImagePath)}`);
+//     filesToCleanup.push(resizedImagePath);
+    
+//     try {
+//       await sharp(tempImagePath)
+//         .resize({
+//           width: selectedSize.width * 300, 
+//           height: selectedSize.height * 300,
+//           fit: 'contain',
+//           background: { r: 255, g: 255, b: 255, alpha: 1 }
+//         })
+//         .toFile(resizedImagePath);
+//     } catch (sharpError) {
+//       console.error(`[${req.id}] Error resizing image:`, sharpError);
+//       safeCleanupFiles(filesToCleanup);
+      
+//       return res.status(400).json({
+//         success: false,
+//         error: 'Image processing error',
+//         message: 'Failed to resize the image. The file may be corrupted or unsupported.'
+//       });
+//     }
+
+//     const finalImagePath = resizedImagePath;
+
+//     console.log(`[${req.id}] Sending print job to printer: ${printerId}`);
+//     try {
+//       await print(finalImagePath, {
+//         printer: printerId,
+//         copies: copies
+//       });
+//     } catch (printError) {
+//       console.error(`[${req.id}] Error printing:`, printError);
+//       safeCleanupFiles(filesToCleanup);
+
+//       return res.status(500).json({
+//         success: false,
+//         error: 'Print failed',
+//         message: printError.message || 'Failed to send document to printer.'
+//       });
+//     }
+
+//     console.log(`[${req.id}] Cleaning up temporary files`);
+//     safeCleanupFiles(filesToCleanup);
+
+//     broadcastPrinterStatus(printerId);
+
+//     console.log(`[${req.id}] Print job submitted successfully`);
+//     return res.json({
+//       success: true,
+//       message: 'Print job submitted successfully',
+//       jobId: Date.now().toString(),
+//       printer: printerId,
+//       paperSize: selectedSize.name,
+//       copies: copies,
+//       timestamp: new Date().toISOString()
+//     });
+
+//   } catch (err) {
+//     console.error(`[${req.id}] Error processing print request:`, err);
+    
+//     if (filesToCleanup.length > 0) {
+//       console.log(`[${req.id}] Cleaning up ${filesToCleanup.length} files after error`);
+//       safeCleanupFiles(filesToCleanup);
+//     }
+    
+//     return res.status(500).json({ 
+//       success: false, 
+//       error: 'Internal server error', 
+//       message: err.message,
+//       requestId: req.id
+//     });
+//   }
+// });
 
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
@@ -587,23 +619,6 @@ server.on('error', (error) => {
     }, 5000);
   }
 });
-
-process.on('SIGTERM', () => {
-  console.log('SIGTERM received. Shutting down gracefully...');
-  server.close(() => {
-    console.log('Server closed.');
-    process.exit(0);
-  });
-});
-
-process.on('SIGINT', () => {
-  console.log('SIGINT received. Shutting down gracefully...');
-  server.close(() => {
-    console.log('Server closed.');
-    process.exit(0);
-  });
-});
-
 server.on('upgrade', (request, socket, head) => {
   try {
     wss.handleUpgrade(request, socket, head, (ws) => {

@@ -176,16 +176,6 @@ document.addEventListener('DOMContentLoaded', function() {
         printerDetails.classList.remove('d-none');
     }
 
-    // Set default printer
-    function setDefaultPrinter() {
-        const selectedPrinter = printerSelect.value;
-        if (selectedPrinter) {
-            localStorage.setItem(DEFAULT_PRINTER_KEY, selectedPrinter);
-            alert(`Printer with ID ${selectedPrinter} has been set as the default printer.`);
-        } else {
-            alert('Please select a printer first.');
-        }
-    }
 
     // Refresh status
     function refreshStatus() {

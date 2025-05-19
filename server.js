@@ -318,7 +318,7 @@ app.get('/api/printer/:printerid', async (req, res) => {
 
 app.use('/api/printer/:printerid', express.raw({ type: 'image/jpeg', limit: '10mb' }));
 
-app.post('/api/printer/:printerid', authenticateAPI, (req, res) => {
+app.post('/api/printer/:printerid', authenticateRequest, (req, res) => {
   const printerId = req.params.printerid;
   const copies = parseInt(req.headers['x-copies'] || '1', 10);
   const size = req.headers['x-size'] || 'A4';

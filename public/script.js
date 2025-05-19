@@ -79,28 +79,6 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-
-    // Populate computer select dropdown
-    function populateComputerSelect(computers) {
-        computerSelect.innerHTML = '';
-        computerSelect.disabled = false;
-        
-        if (!computers || computers.length === 0) {
-            const option = document.createElement('option');
-            option.value = '';
-            option.textContent = 'No computers found';
-            computerSelect.appendChild(option);
-            return;
-        }
-
-        computers.forEach(computer => {
-            const option = document.createElement('option');
-            option.value = computer.id;
-            option.textContent = computer.name;
-            computerSelect.appendChild(option);
-        });
-    }
-
     // Fetch printers from API
     async function fetchPrinters() {
         try {

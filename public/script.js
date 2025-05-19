@@ -59,25 +59,6 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
-    // Toggle API Key visibility
-    function toggleApiKeyVisibility() {
-        const type = apiKeyInput.getAttribute('type') === 'password' ? 'text' : 'password';
-        apiKeyInput.setAttribute('type', type);
-        toggleApiKeyBtn.innerHTML = type === 'password' ? '<i class="bi bi-eye"></i>' : '<i class="bi bi-eye-slash"></i>';
-    }
-
-    // Save API Key
-    function saveApiKey() {
-        const apiKey = apiKeyInput.value.trim();
-        if (!apiKey) {
-            alert('Please enter an API key');
-            return;
-        }
-        
-        localStorage.setItem(API_KEY_STORAGE_KEY, apiKey);
-        alert('API key saved successfully!');
-        testConnection();
-    }
 
     // Test connection to PrintNode
     async function testConnection() {
@@ -394,7 +375,6 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    // Load any saved API key and check for default printer
     function initializeApp() {
         const savedApiKey = localStorage.getItem(API_KEY_STORAGE_KEY);
         if (savedApiKey) {

@@ -79,21 +79,6 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    // Fetch computers from API
-    async function fetchComputers() {
-        try {
-            const response = await fetch(`${API_BASE_URL}/api/computers`);
-            if (!response.ok) {
-                throw new Error('Failed to fetch computers');
-            }
-            
-            const data = await response.json();
-            return data.computers;
-        } catch (error) {
-            console.error('Error fetching computers:', error);
-            throw error;
-        }
-    }
 
     // Populate computer select dropdown
     function populateComputerSelect(computers) {

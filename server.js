@@ -3,11 +3,11 @@ const path = require('path');
 const fs = require('fs');
 const cors = require('cors');
 const morgan = require('morgan');
-//const { getPrinters } = require('printer-lp');
 const printer = require('printer-lp');
 const sharp = require('sharp');
 const { v4: uuidv4 } = require('uuid');
 const WebSocket = require('ws');
+const { getPrinters } = require('pdf-to-printer');
 require('dotenv').config();
 
 process.on('uncaughtException', (error) => {
@@ -78,8 +78,9 @@ const DNP_PRINTER_CONFIG = {
 // done fetching printers
 const safeGetPrinters = async () => {
   try {
-    const printers = await printer.getPrinters();
-    return printers; 
+    const printers = await getPrinters();
+    console.log("Detected printers:", printers);
+    return printers;
   } catch (err) {
     console.error('Failed to fetch printers:', err);
     return []; 

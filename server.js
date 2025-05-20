@@ -4,7 +4,7 @@ const fs = require('fs');
 const cors = require('cors');
 const morgan = require('morgan');
 //const { getPrinters } = require('printer-lp');
-const {  getPrinters,print } = require('pdf-to-printer');
+const printer = require('printer-lp');
 const sharp = require('sharp');
 const { v4: uuidv4 } = require('uuid');
 const WebSocket = require('ws');
@@ -78,9 +78,10 @@ const DNP_PRINTER_CONFIG = {
 // fetching printers
 const safeGetPrinters = async () => {
   try {
-    return await getPrinters();
-  } catch (error) {
-    console.error('Error getting printers:', error);
+    const printers = await printer.getPrinters();
+    return printers; 
+  } catch (err) {
+    console.error('Failed to fetch printers:', err);
     return []; 
   }
 };

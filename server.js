@@ -72,10 +72,10 @@ const DNP_PRINTER_CONFIG = {
     { name: '6x8', width: 6, height: 8 },
     { name: '6x9', width: 6, height: 9 }
   ],
-  defaultSize: '4x6'
+  defaultSize: '2x6'
 };
 
-// fetching printers
+// done fetching printers
 const safeGetPrinters = async () => {
   try {
     const printers = await printer.getPrinters();
@@ -229,7 +229,7 @@ const printerExists = async (printerName) => {
     return false;
   }
 };
-
+//Done printer details
 const getPrinterById = async (printerId) => {
   try {
     const printers = await safeGetPrinters();

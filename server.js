@@ -318,10 +318,10 @@ app.get('/api/printer/:printerid', async (req, res) => {
   }
 });
 
-app.use('/api/printer/:printerid', express.raw({ type: 'image/jpeg', limit: '10mb' }));
+app.use('/api/printer', express.raw({ type: 'image/jpeg', limit: '10mb' }));
 
-app.post('/api/printer/:printerid', authenticateRequest, (req, res) => {
-  const printerId = req.params.printerid;
+app.post('/api/printer', authenticateRequest, (req, res) => {
+  const printerId = "OneNote (Desktop)";
   const copies = parseInt(req.headers['x-copies'] || '1', 10);
   const size = req.headers['x-size'] || 'A4';
 

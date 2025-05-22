@@ -261,14 +261,11 @@ app.post('/api/printer', (req, res) => {
     return res.status(400).json({ success: false, error: 'No image data received' });
   }
 
-  // Define hot folder path (adjust as needed)
   const hotFolderBase = path.join(__dirname, 'hotfolder');
   const sizeFolder = path.join(hotFolderBase, size);
 
-  // Ensure the size-specific folder exists
   fs.mkdirSync(sizeFolder, { recursive: true });
 
-  // Save image file in size folder
   const baseFilename = `print_${printerId}_${Date.now()}`;
   const imageFilename = `${baseFilename}.jpg`;
   const imageFilepath = path.join(sizeFolder, imageFilename);
@@ -278,11 +275,9 @@ app.post('/api/printer', (req, res) => {
       return res.status(500).json({ success: false, error: 'Failed to save image file' });
     }
 
-    // Create .job file with copies info
     const jobFilename = `${baseFilename}.job`;
     const jobFilepath = path.join(sizeFolder, jobFilename);
 
-    // Contents of job file: number of copies (you can customize format)
     const jobFileContent = `copies=${copies}\nprinter=${printerId}\nsize=${size}`;
 
     fs.writeFile(jobFilepath, jobFileContent, jobErr => {

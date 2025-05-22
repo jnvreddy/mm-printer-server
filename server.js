@@ -252,35 +252,58 @@ app.get('/api/printer', async (req, res) => {
 
 app.use('/api/printer', express.raw({ type: 'image/jpeg', limit: '10mb' }));
 
-app.post('/api/printer', authenticateRequest, (req, res) => {
-  const printerId = "OneNote (Desktop)";
+app.post('/api/printer', (req, res) => {
+  const printerId = req.headers['x-printer-id'] || "OneNote (Desktop)";
   const copies = parseInt(req.headers['x-copies'] || '1', 10);
-  const size = req.headers['x-size'] || 'A4';
+  const size = req.headers['x-size'] || '2x6';
 
   if (!req.body || !req.body.length) {
     return res.status(400).json({ success: false, error: 'No image data received' });
   }
 
-  const filename = `print_${printerId}_${Date.now()}.jpg`;
-  const filepath = path.join(__dirname, 'downloads', filename);
-  fs.mkdirSync(path.dirname(filepath), { recursive: true });
+  // Define hot folder path (adjust as needed)
+  const hotFolderBase = path.join(__dirname, 'hotfolder');
+  const sizeFolder = path.join(hotFolderBase, size);
 
-  fs.writeFile(filepath, req.body, err => {
+  // Ensure the size-specific folder exists
+  fs.mkdirSync(sizeFolder, { recursive: true });
+
+  // Save image file in size folder
+  const baseFilename = `print_${printerId}_${Date.now()}`;
+  const imageFilename = `${baseFilename}.jpg`;
+  const imageFilepath = path.join(sizeFolder, imageFilename);
+
+  fs.writeFile(imageFilepath, req.body, err => {
     if (err) {
-      return res.status(500).json({ success: false, error: 'Failed to save file' });
+      return res.status(500).json({ success: false, error: 'Failed to save image file' });
     }
 
-    res.json({
-      success: true,
-      message: 'Image saved successfully',
-      printer: printerId,
-      copies,
-      size,
-      downloadUrl: `/downloads/${filename}`,
-      timestamp: new Date().toISOString()
+    // Create .job file with copies info
+    const jobFilename = `${baseFilename}.job`;
+    const jobFilepath = path.join(sizeFolder, jobFilename);
+
+    // Contents of job file: number of copies (you can customize format)
+    const jobFileContent = `copies=${copies}\nprinter=${printerId}\nsize=${size}`;
+
+    fs.writeFile(jobFilepath, jobFileContent, jobErr => {
+      if (jobErr) {
+        return res.status(500).json({ success: false, error: 'Failed to save job file' });
+      }
+
+      res.json({
+        success: true,
+        message: 'Image and job files saved successfully',
+        printer: printerId,
+        copies,
+        size,
+        imagePath: `/hotfolder/${size}/${imageFilename}`,
+        jobFilePath: `/hotfolder/${size}/${jobFilename}`,
+        timestamp: new Date().toISOString()
+      });
     });
   });
 });
+
 
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));

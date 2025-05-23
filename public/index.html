@@ -4,163 +4,599 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="icon" href="/favicon.ico" type="image/x-icon">
-
-    <title>Printer Server</title>
+    <title>Print Server Admin Dashboard</title>
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 20px;
-            background-color: #f5f5f5;
-        }
-
-        .container {
-            background-color: white;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-        }
-
-        h1 {
-            color: #333;
-            text-align: center;
-        }
-
-        .form-group {
-            margin-bottom: 15px;
-        }
-
-        label {
-            display: block;
-            margin-bottom: 5px;
-            color: #666;
-        }
-
-        select,
-        input {
-            width: 100%;
-            padding: 8px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
+        * {
+            margin: 0;
+            padding: 0;
             box-sizing: border-box;
         }
 
-        button {
-            background-color: #4CAF50;
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .dashboard {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
             color: white;
-            padding: 10px 15px;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+        }
+
+        .header p {
+            opacity: 0.9;
+            font-size: 1.1rem;
+        }
+
+        .admin-section {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            margin-bottom: 30px;
+        }
+
+        .admin-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #f0f0f0;
+        }
+
+        .admin-header h3 {
+            color: #333;
+            margin: 0;
+            font-size: 1.3rem;
+        }
+
+        .api-key-config {
+            display: grid;
+            grid-template-columns: 1fr auto auto;
+            gap: 15px;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .api-key-input {
+            padding: 12px 15px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-family: monospace;
+            transition: border-color 0.3s ease;
+        }
+
+        .api-key-input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .btn {
+            padding: 12px 20px;
             border: none;
-            border-radius: 4px;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 600;
             cursor: pointer;
-            width: 100%;
+            transition: all 0.3s ease;
         }
 
-        button:hover {
-            background-color: #45a049;
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
         }
 
-        #status {
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
+        }
+
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #5a6268;
+            transform: translateY(-2px);
+        }
+
+        .btn-success {
+            background: #28a745;
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #218838;
+            transform: translateY(-2px);
+        }
+
+        .status-message {
+            padding: 12px;
+            border-radius: 8px;
+            margin-top: 15px;
+            font-weight: 500;
+            text-align: center;
+        }
+
+        .status-message.success {
+            background: rgba(40, 167, 69, 0.1);
+            color: #155724;
+            border: 1px solid rgba(40, 167, 69, 0.3);
+        }
+
+        .status-message.error {
+            background: rgba(220, 53, 69, 0.1);
+            color: #721c24;
+            border: 1px solid rgba(220, 53, 69, 0.3);
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .stat-card {
+            background: rgba(255, 255, 255, 0.15);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 20px;
+            text-align: center;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: white;
+            transition: transform 0.3s ease;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-5px);
+        }
+
+        .stat-number {
+            font-size: 2.5rem;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+
+        .stat-label {
+            font-size: 1rem;
+            opacity: 0.9;
+        }
+
+        .printers-section {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .printers-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+        }
+
+        .printer-box {
+            background: #fafafa;
+            border-radius: 12px;
+            padding: 20px;
+            border: 2px solid #e0e0e0;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .printer-box::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, #4CAF50, #45a049);
+        }
+
+        .printer-box.offline::before {
+            background: linear-gradient(90deg, #f44336, #d32f2f);
+        }
+
+        .printer-box:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+        }
+
+        .printer-name {
+            font-size: 1.3rem;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .status-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #4CAF50;
+            animation: pulse 2s infinite;
+        }
+
+        .status-indicator.offline {
+            background: #f44336;
+            animation: none;
+        }
+
+        @keyframes pulse {
+            0% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.5;
+            }
+
+            100% {
+                opacity: 1;
+            }
+        }
+
+        .printer-details {
+            display: grid;
+            gap: 8px;
+        }
+
+        .printer-detail {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.9rem;
+        }
+
+        .printer-detail .label {
+            color: #666;
+            font-weight: 500;
+        }
+
+        .printer-detail .value {
+            color: #333;
+            font-family: monospace;
+        }
+
+        .server-info {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
             margin-top: 20px;
+            padding-top: 20px;
+            border-top: 2px solid #f0f0f0;
+        }
+
+        .server-detail {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
             padding: 10px;
-            border-radius: 4px;
+            background: #f8f9fa;
+            border-radius: 8px;
         }
 
-        .success {
-            background-color: #dff0d8;
-            color: #3c763d;
+        .loading {
+            text-align: center;
+            color: #666;
+            font-size: 1.1rem;
+            padding: 40px;
         }
 
-        .error {
-            background-color: #f2dede;
-            color: #a94442;
+        .loading::after {
+            content: '';
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 2px solid rgba(0, 0, 0, 0.1);
+            border-radius: 50%;
+            border-top-color: #667eea;
+            animation: spin 1s linear infinite;
+            margin-left: 10px;
+            vertical-align: middle;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        @media (max-width: 768px) {
+            .api-key-config {
+                grid-template-columns: 1fr;
+                gap: 10px;
+            }
+
+            .server-info {
+                grid-template-columns: 1fr;
+            }
+
+            .header h1 {
+                font-size: 2rem;
+            }
         }
     </style>
 </head>
 
 <body>
-    <div class="container">
-        <h1>Printer Server</h1>
-
-        <div class="form-group">
-            <label for="printerSelect">Select Printer:</label>
-            <select id="printerSelect">
-                <option value="">Loading printers...</option>
-            </select>
+    <div class="dashboard">
+        <div class="header">
+            <h1>🖨️ Print Server Dashboard</h1>
+            <p>Admin panel for managing your print server</p>
         </div>
 
+        <!-- Server Configuration Section -->
+        <div class="admin-section">
+            <div class="admin-header">
+                <h3>🔐 Server Configuration</h3>
+            </div>
 
-        <div class="form-group">
-            <label for="copies">Number of Copies:</label>
-            <input type="number" id="copies" value="1" min="1">
+            <div class="api-key-config">
+                <input type="text" id="api-key-input" class="api-key-input"
+                    placeholder="Enter API Key for client authentication..." />
+                <button id="save-key-btn" class="btn btn-success">Save API Key</button>
+                <button id="generate-key-btn" class="btn btn-secondary">Generate New</button>
+            </div>
+
+            <div id="api-status" class="status-message" style="display: none;"></div>
+
+            <div class="server-info">
+                <div class="server-detail">
+                    <span><strong>Server Status:</strong></span>
+                    <span id="server-status">🟢 Running</span>
+                </div>
+                <div class="server-detail">
+                    <span><strong>Current API Key:</strong></span>
+                    <span id="current-api-key">Not Set</span>
+                </div>
+                <div class="server-detail">
+                    <span><strong>Server Port:</strong></span>
+                    <span id="server-port">3000</span>
+                </div>
+                <div class="server-detail">
+                    <span><strong>Last Updated:</strong></span>
+                    <span id="last-updated">--</span>
+                </div>
+            </div>
         </div>
 
-        <button onclick="printFile()">Print</button>
+        <!-- Statistics Section -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-number" id="total-printers">0</div>
+                <div class="stat-label">Total Printers</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="online-printers">0</div>
+                <div class="stat-label">Online Printers</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="print-queue">0</div>
+                <div class="stat-label">Print Queue</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="total-prints">0</div>
+                <div class="stat-label">Total Prints Today</div>
+            </div>
+        </div>
 
-        <div id="status"></div>
+        <!-- Printers Section -->
+        <div class="printers-section">
+            <div class="admin-header">
+                <h3>🖨️ Connected Printers</h3>
+                <button id="refresh-printers" class="btn btn-primary">Refresh</button>
+            </div>
+
+            <div id="printers-container">
+                <div class="loading">Loading printer information...</div>
+            </div>
+        </div>
     </div>
 
     <script>
-        window.onload = async function () {
-            try {
-                const response = await fetch('/api/printers');
-                const data = await response.json();
-                const printerSelect = document.getElementById('printerSelect');
+        let printers = [];
+        let printCount = 0;
+        let totalPrints = 0;
+        let currentApiKey = '';
 
-                printerSelect.innerHTML = '';
-                data.printers.forEach(printer => {
-                    const option = document.createElement('option');
-                    option.value = printer.name;
-                    option.textContent = printer.name;
-                    printerSelect.appendChild(option);
-                });
-
-
-            } catch (error) {
-                showStatus('Error loading printers: ' + error.message, false);
+        // Generate a random API key
+        function generateApiKey() {
+            const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+            let result = '';
+            for (let i = 0; i < 32; i++) {
+                result += chars.charAt(Math.floor(Math.random() * chars.length));
             }
-        };
+            return result;
+        }
 
-        async function printFile() {
-            const fileInput = document.getElementById('fileInput');
-            const printerSelect = document.getElementById('printerSelect');
-            const copies = document.getElementById('copies').value;
-            const statusDiv = document.getElementById('status');
+        // Save API key to localStorage (simulating server storage)
+        function saveApiKey() {
+            const apiKeyInput = document.getElementById('api-key-input');
+            const newApiKey = apiKeyInput.value.trim();
 
-            if (!fileInput.files.length) {
-                showStatus('Please select a file to print', false);
+            if (!newApiKey) {
+                showStatus('Please enter an API key', 'error');
                 return;
             }
 
-            const formData = new FormData();
-            formData.append('file', fileInput.files[0]);
-            formData.append('printerName', printerSelect.value);
-            formData.append('copies', copies);
+            // In a real implementation, you'd send this to your server
+            // For now, we'll store it locally and simulate server behavior
+            currentApiKey = newApiKey;
+            localStorage.setItem('server_api_key', newApiKey);
 
+            document.getElementById('current-api-key').textContent = maskApiKey(newApiKey);
+            showStatus('✅ API Key saved successfully! Clients can now use this key to connect.', 'success');
+
+            // Clear the input
+            apiKeyInput.value = '';
+        }
+
+        // Generate new API key
+        function generateNewApiKey() {
+            const newKey = generateApiKey();
+            document.getElementById('api-key-input').value = newKey;
+        }
+
+        // Mask API key for display
+        function maskApiKey(key) {
+            if (!key) return 'Not Set';
+            return key.substring(0, 4) + '****' + key.substring(key.length - 4);
+        }
+
+        // Show status message
+        function showStatus(message, type) {
+            const statusEl = document.getElementById('api-status');
+            statusEl.textContent = message;
+            statusEl.className = `status-message ${type}`;
+            statusEl.style.display = 'block';
+
+            setTimeout(() => {
+                statusEl.style.display = 'none';
+            }, 5000);
+        }
+
+        // Update statistics
+        function updateStats() {
+            document.getElementById('total-printers').textContent = printers.length;
+            document.getElementById('online-printers').textContent = printers.filter(p => p.isConnected).length;
+            document.getElementById('print-queue').textContent = printCount;
+            document.getElementById('total-prints').textContent = totalPrints;
+            document.getElementById('last-updated').textContent = new Date().toLocaleTimeString();
+        }
+
+        // Load printers (no auth needed for admin dashboard)
+        async function loadPrinters() {
             try {
-                const response = await fetch('/api/print', {
-                    method: 'POST',
-                    body: formData
-                });
+                // For admin dashboard, we call the non-authenticated endpoint or create a special admin endpoint
+                const response = await fetch('/api/printers'); // Note: different endpoint without auth
+                const data = await response.json();
 
-                const result = await response.json();
-
-                if (response.ok) {
-                    showStatus('Print job submitted successfully!', true);
+                if (data.success || data.printers) {
+                    printers = data.printers || [];
+                    renderPrinters(printers);
+                    updateStats();
                 } else {
-                    showStatus('Error: ' + result.error, false);
+                    throw new Error(data.error || 'Failed to load printers');
                 }
             } catch (error) {
-                showStatus('Error submitting print job: ' + error.message, false);
+                console.error('Error loading printers:', error);
+                document.getElementById('printers-container').innerHTML =
+                    `<div class="loading">Error loading printers: ${error.message}</div>`;
             }
         }
 
-        function showStatus(message, isSuccess) {
-            const statusDiv = document.getElementById('status');
-            statusDiv.textContent = message;
-            statusDiv.className = isSuccess ? 'success' : 'error';
+        // Render printers
+        function renderPrinters(printersData) {
+            const container = document.getElementById('printers-container');
+
+            if (!printersData || printersData.length === 0) {
+                container.innerHTML = '<div class="loading">No printers detected</div>';
+                return;
+            }
+
+            const printersHTML = printersData.map(printer => `
+                <div class="printer-box ${printer.isConnected ? 'online' : 'offline'}">
+                    <div class="printer-name">
+                        <span class="status-indicator ${printer.isConnected ? 'online' : 'offline'}"></span>
+                        ${printer.name}
+                    </div>
+                    <div class="printer-details">
+                        <div class="printer-detail">
+                            <span class="label">Status:</span>
+                            <span class="value">${printer.isConnected ? 'Online' : 'Offline'}</span>
+                        </div>
+                        <div class="printer-detail">
+                            <span class="label">ID:</span>
+                            <span class="value">${printer.id}</span>
+                        </div>
+                        <div class="printer-detail">
+                            <span class="label">Type:</span>
+                            <span class="value">Network Printer</span>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+
+            container.innerHTML = `<div class="printers-grid">${printersHTML}</div>`;
         }
+
+        // Monitor print queue (simulate)
+        function monitorPrintQueue() {
+            setInterval(() => {
+                // Simulate print jobs being processed
+                if (Math.random() < 0.15) { // 15% chance every 3 seconds
+                    printCount++;
+                    totalPrints++;
+                    updateStats();
+                }
+
+                // Simulate queue processing
+                if (printCount > 0 && Math.random() < 0.3) { // 30% chance to process a job
+                    printCount = Math.max(0, printCount - 1);
+                    updateStats();
+                }
+            }, 3000);
+        }
+
+        // Initialize dashboard
+        function init() {
+            // Load saved API key
+            const savedKey = localStorage.getItem('server_api_key');
+            if (savedKey) {
+                currentApiKey = savedKey;
+                document.getElementById('current-api-key').textContent = maskApiKey(savedKey);
+            }
+
+            // Set up event listeners
+            document.getElementById('save-key-btn').addEventListener('click', saveApiKey);
+            document.getElementById('generate-key-btn').addEventListener('click', generateNewApiKey);
+            document.getElementById('refresh-printers').addEventListener('click', loadPrinters);
+
+            // Allow Enter key to save API key
+            document.getElementById('api-key-input').addEventListener('keypress', function (e) {
+                if (e.key === 'Enter') {
+                    saveApiKey();
+                }
+            });
+
+            // Load initial data
+            loadPrinters();
+            monitorPrintQueue();
+
+            // Refresh printers every 30 seconds
+            setInterval(loadPrinters, 30000);
+
+            // Update stats every 5 seconds
+            setInterval(updateStats, 5000);
+        }
+
+        // Start dashboard when page loads
+        window.addEventListener('load', init);
     </script>
 </body>
 

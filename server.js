@@ -3,11 +3,11 @@ const path = require('path');
 const fs = require('fs');
 const cors = require('cors');
 const morgan = require('morgan');
-const printer = require('printer-lp');
-const sharp = require('sharp');
 const { v4: uuidv4 } = require('uuid');
 const WebSocket = require('ws');
 const { getPrinters } = require('pdf-to-printer');
+const chokidar = require('chokidar');
+
 require('dotenv').config();
 
 process.on('uncaughtException', (error) => {
@@ -202,6 +202,33 @@ const authenticateRequest = (req, res, next) => {
   }
 };
 
+app.get('/api/printers', async (req, res) => {
+  try {
+    console.log(`[${req.id}] Admin dashboard fetching all printers`);
+    const printers = await safeGetPrinters();
+    
+    const formattedPrinters = printers.map(printer => ({
+      id: printer.name,
+      name: printer.name,
+      isConnected: true
+    }));
+
+    console.log(`[${req.id}] Found ${formattedPrinters.length} printers for admin dashboard`);
+    return res.json({
+      success: true,
+      printers: formattedPrinters
+    });
+  } catch (err) {
+    console.error(`[${req.id}] Error fetching printers for admin dashboard:`, err);
+    return res.status(500).json({ 
+      success: false, 
+      error: 'Internal server error', 
+      message: err.message,
+      requestId: req.id
+    });
+  }
+});
+
 app.use('/api/printer', authenticateRequest);
 
 const safeCleanupFiles = (files) => {
@@ -252,52 +279,106 @@ app.get('/api/printer', async (req, res) => {
 
 app.use('/api/printer', express.raw({ type: 'image/jpeg', limit: '10mb' }));
 
+
 app.post('/api/printer', (req, res) => {
-  const printerId = req.headers['x-printer-id'] || "OneNote (Desktop)";
+  const printerId = req.headers['x-printer-id'] || "DNP Printer";
   const copies = parseInt(req.headers['x-copies'] || '1', 10);
   const size = req.headers['x-size'] || '2x6';
-
-  if (!req.body || !req.body.length) {
-    return res.status(400).json({ success: false, error: 'No image data received' });
-  }
 
   const hotFolderBase = path.join(__dirname, 'hotfolder');
   const sizeFolder = path.join(hotFolderBase, size);
 
-  fs.mkdirSync(sizeFolder, { recursive: true });
+  if (!fs.existsSync(sizeFolder)) {
+    return res.status(400).json({ success: false, error: `Size folder '${size}' does not exist` });
+  }
 
   const baseFilename = `print_${printerId}_${Date.now()}`;
   const imageFilename = `${baseFilename}.jpg`;
+  const jobFilename = `${baseFilename}.job`;
   const imageFilepath = path.join(sizeFolder, imageFilename);
+  const jobFilepath = path.join(sizeFolder, jobFilename);
 
-  fs.writeFile(imageFilepath, req.body, err => {
-    if (err) {
-      return res.status(500).json({ success: false, error: 'Failed to save image file' });
-    }
+  fs.writeFileSync(imageFilepath, req.body);
+  fs.writeFileSync(jobFilepath, `copies=${copies}\nprinter=${printerId}\nsize=${size}`);
 
-    const jobFilename = `${baseFilename}.job`;
-    const jobFilepath = path.join(sizeFolder, jobFilename);
+  const printedFolder = path.join(sizeFolder, 'Printed');
+  const errorFolder = path.join(sizeFolder, 'Error');
 
-    const jobFileContent = `copies=${copies}\nprinter=${printerId}\nsize=${size}`;
+  const timeout = setTimeout(() => {
+    watcher.close();
+    return res.status(202).json({ success: false, message: 'Timed out waiting for printer response.' });
+  }, 15000); // 15 sec timeout
 
-    fs.writeFile(jobFilepath, jobFileContent, jobErr => {
-      if (jobErr) {
-        return res.status(500).json({ success: false, error: 'Failed to save job file' });
-      }
+  const watcher = chokidar.watch([printedFolder, errorFolder], {
+    persistent: true,
+    depth: 0,
+    ignoreInitial: true
+  });
 
-      res.json({
-        success: true,
-        message: 'Image and job files saved successfully',
-        printer: printerId,
-        copies,
-        size,
-        imagePath: `/hotfolder/${size}/${imageFilename}`,
-        jobFilePath: `/hotfolder/${size}/${jobFilename}`,
-        timestamp: new Date().toISOString()
+  watcher.on('add', (movedFilePath) => {
+    const movedFilename = path.basename(movedFilePath);
+    if (movedFilename === imageFilename) {
+      clearTimeout(timeout);
+      watcher.close();
+
+      const isPrinted = movedFilePath.includes('Printed');
+      return res.status(200).json({
+        success: isPrinted,
+        status: isPrinted ? 'Printed successfully' : 'Failed to print',
+        file: movedFilename,
+        movedTo: isPrinted ? 'Printed folder' : 'Error folder',
       });
-    });
+    }
   });
 });
+
+
+// app.post('/api/printer', (req, res) => {
+//   const printerId = req.headers['x-printer-id'] || "OneNote (Desktop)";
+//   const copies = parseInt(req.headers['x-copies'] || '1', 10);
+//   const size = req.headers['x-size'] || '2x6';
+
+//   if (!req.body || !req.body.length) {
+//     return res.status(400).json({ success: false, error: 'No image data received' });
+//   }
+
+//   const hotFolderBase = path.join(__dirname, 'hotfolder');
+//   const sizeFolder = path.join(hotFolderBase, size);
+
+//   fs.mkdirSync(sizeFolder, { recursive: true });
+
+//   const baseFilename = `print_${printerId}_${Date.now()}`;
+//   const imageFilename = `${baseFilename}.jpg`;
+//   const imageFilepath = path.join(sizeFolder, imageFilename);
+
+//   fs.writeFile(imageFilepath, req.body, err => {
+//     if (err) {
+//       return res.status(500).json({ success: false, error: 'Failed to save image file' });
+//     }
+
+//     const jobFilename = `${baseFilename}.job`;
+//     const jobFilepath = path.join(sizeFolder, jobFilename);
+
+//     const jobFileContent = `copies=${copies}\nprinter=${printerId}\nsize=${size}`;
+
+//     fs.writeFile(jobFilepath, jobFileContent, jobErr => {
+//       if (jobErr) {
+//         return res.status(500).json({ success: false, error: 'Failed to save job file' });
+//       }
+
+//       res.json({
+//         success: true,
+//         message: 'Image and job files saved successfully',
+//         printer: printerId,
+//         copies,
+//         size,
+//         imagePath: `/hotfolder/${size}/${imageFilename}`,
+//         jobFilePath: `/hotfolder/${size}/${jobFilename}`,
+//         timestamp: new Date().toISOString()
+//       });
+//     });
+//   });
+// });
 
 
 app.get('/', (req, res) => {

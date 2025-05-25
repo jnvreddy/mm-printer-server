@@ -25,6 +25,9 @@ const wss = new WebSocket.Server({ noServer: true });
 
 const clients = new Set();
 
+// Add print counter
+let successfulPrintCount = 0;
+
 const safeSendMessage = (client, message) => {
   try {
     if (client.readyState === WebSocket.OPEN) {
@@ -202,6 +205,34 @@ const authenticateRequest = (req, res, next) => {
   }
 };
 
+// Add new endpoint for dashboard stats (no authentication needed for admin dashboard)
+app.get('/api/dashboard/stats', async (req, res) => {
+  try {
+    const printers = await safeGetPrinters();
+    const apiKey = process.env.API_KEY || null;
+    
+    return res.json({
+      success: true,
+      stats: {
+        successfulPrints: successfulPrintCount,
+        apiKey: apiKey,
+        printers: printers.map(printer => ({
+          name: printer.name,
+          isConnected: true,
+          status: printer.status || 'online'
+        }))
+      }
+    });
+  } catch (err) {
+    console.error(`Error fetching dashboard stats:`, err);
+    return res.status(500).json({ 
+      success: false, 
+      error: 'Internal server error', 
+      message: err.message
+    });
+  }
+});
+
 app.get('/api/printers', async (req, res) => {
   try {
     console.log(`[${req.id}] Admin dashboard fetching all printers`);
@@ -279,7 +310,6 @@ app.get('/api/printer', async (req, res) => {
 
 app.use('/api/printer', express.raw({ type: 'image/jpeg', limit: '10mb' }));
 
-
 app.post('/api/printer', (req, res) => {
   const printerId = req.headers['x-printer-id'] || "DNP Printer";
   const copies = parseInt(req.headers['x-copies'] || '1', 10);
@@ -322,6 +352,12 @@ app.post('/api/printer', (req, res) => {
       watcher.close();
 
       const isPrinted = movedFilePath.includes('Printed');
+      
+      if (isPrinted) {
+        successfulPrintCount++;
+        console.log(`Print successful! Total successful prints: ${successfulPrintCount}`);
+      }
+
       return res.status(200).json({
         success: isPrinted,
         status: isPrinted ? 'Printed successfully' : 'Failed to print',
@@ -344,7 +380,6 @@ app.get('/health', (req, res) => {
   });
 });
 
-// 404 handler for API routes
 app.use('/api', (req, res) => {
   res.status(404).json({
     success: false,
@@ -368,7 +403,6 @@ app.use((err, req, res, next) => {
   });
 });
 
-// 404 handler for all other routes
 app.use((req, res) => {
   if (req.accepts('html')) {
     res.status(404).sendFile(path.join(__dirname, 'public', '404.html'));
@@ -422,7 +456,6 @@ const server = app.listen(PORT, '0.0.0.0', async () => {
         console.log(`- ${printer.name}`);
       });
 
-      // Check if our target printer is in the list
       const targetPrinter = printers.find(p => p.name === DNP_PRINTER_CONFIG.name);
       if (targetPrinter) {
         console.log(`\n✅ Target printer "${DNP_PRINTER_CONFIG.name}" is available`);
@@ -437,14 +470,13 @@ const server = app.listen(PORT, '0.0.0.0', async () => {
       console.log('⚠️ No printers detected. Please make sure your printer is connected and powered on.');
     }
 
-    // Start periodic status updates
     setInterval(() => {
       try {
         broadcastPrinterStatus(DNP_PRINTER_CONFIG.name);
       } catch (error) {
         console.error('Error in periodic status update:', error);
       }
-    }, 5000); // Update every 5 seconds
+    }, 5000); 
   } catch (err) {
     console.error('Error detecting printers:', err);
     console.log('⚠️ The server will continue running, but printer functionality may not work.');

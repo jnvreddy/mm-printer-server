@@ -307,7 +307,7 @@ app.post('/api/printer', (req, res) => {
   const timeout = setTimeout(() => {
     watcher.close();
     return res.status(202).json({ success: false, message: 'Timed out waiting for printer response.' });
-  }, 15000); // 15 sec timeout
+  }, 15000); 
 
   const watcher = chokidar.watch([printedFolder, errorFolder], {
     persistent: true,
@@ -331,55 +331,6 @@ app.post('/api/printer', (req, res) => {
     }
   });
 });
-
-
-// app.post('/api/printer', (req, res) => {
-//   const printerId = req.headers['x-printer-id'] || "OneNote (Desktop)";
-//   const copies = parseInt(req.headers['x-copies'] || '1', 10);
-//   const size = req.headers['x-size'] || '2x6';
-
-//   if (!req.body || !req.body.length) {
-//     return res.status(400).json({ success: false, error: 'No image data received' });
-//   }
-
-//   const hotFolderBase = path.join(__dirname, 'hotfolder');
-//   const sizeFolder = path.join(hotFolderBase, size);
-
-//   fs.mkdirSync(sizeFolder, { recursive: true });
-
-//   const baseFilename = `print_${printerId}_${Date.now()}`;
-//   const imageFilename = `${baseFilename}.jpg`;
-//   const imageFilepath = path.join(sizeFolder, imageFilename);
-
-//   fs.writeFile(imageFilepath, req.body, err => {
-//     if (err) {
-//       return res.status(500).json({ success: false, error: 'Failed to save image file' });
-//     }
-
-//     const jobFilename = `${baseFilename}.job`;
-//     const jobFilepath = path.join(sizeFolder, jobFilename);
-
-//     const jobFileContent = `copies=${copies}\nprinter=${printerId}\nsize=${size}`;
-
-//     fs.writeFile(jobFilepath, jobFileContent, jobErr => {
-//       if (jobErr) {
-//         return res.status(500).json({ success: false, error: 'Failed to save job file' });
-//       }
-
-//       res.json({
-//         success: true,
-//         message: 'Image and job files saved successfully',
-//         printer: printerId,
-//         copies,
-//         size,
-//         imagePath: `/hotfolder/${size}/${imageFilename}`,
-//         jobFilePath: `/hotfolder/${size}/${jobFilename}`,
-//         timestamp: new Date().toISOString()
-//       });
-//     });
-//   });
-// });
-
 
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));

@@ -32,5 +32,8 @@
     "sharp": "^0.33.2",
     "uuid": "^11.1.0",
     "ws": "^8.16.0"
+  },
+  "devDependencies": {
+    "electron": "^36.3.1"
   }
 }

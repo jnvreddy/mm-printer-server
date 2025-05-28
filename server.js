@@ -4,68 +4,23 @@ const fs = require('fs');
 const cors = require('cors');
 const morgan = require('morgan');
 const { v4: uuidv4 } = require('uuid');
-const WebSocket = require('ws');
 const { getPrinters } = require('pdf-to-printer');
 const chokidar = require('chokidar');
-
 require('dotenv').config();
 
 process.on('uncaughtException', (error) => {
   console.error('UNCAUGHT EXCEPTION - keeping process alive:', error);
 });
 
-process.on('unhandledRejection', (reason, promise) => {
+process.on('unhandledRejection', (reason) => {
   console.error('UNHANDLED REJECTION - keeping process alive. Reason:', reason);
 });
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-const wss = new WebSocket.Server({ noServer: true });
-
-const clients = new Set();
-
 // Add print counter
 let successfulPrintCount = 0;
-
-const safeSendMessage = (client, message) => {
-  try {
-    if (client.readyState === WebSocket.OPEN) {
-      client.send(typeof message === 'string' ? message : JSON.stringify(message));
-    }
-  } catch (error) {
-    console.error('Error sending WebSocket message:', error);
-  }
-};
-
-wss.on('connection', (ws) => {
-  try {
-    clients.add(ws);
-    console.log(`WebSocket client connected (total: ${clients.size})`);
-
-    broadcastPrinterStatus(DNP_PRINTER_CONFIG.name);
-
-    ws.on('close', () => {
-      try {
-        clients.delete(ws);
-        console.log(`WebSocket client disconnected (remaining: ${clients.size})`);
-      } catch (error) {
-        console.error('Error handling WebSocket close event:', error);
-      }
-    });
-
-    ws.on('error', (error) => {
-      console.error('WebSocket client error:', error);
-      try {
-        clients.delete(ws);
-      } catch (innerError) {
-        console.error('Error removing client after error:', innerError);
-      }
-    });
-  } catch (error) {
-    console.error('Error handling WebSocket connection:', error);
-  }
-});
 
 const DNP_PRINTER_CONFIG = {
   name: 'DNS XH1',
@@ -85,81 +40,13 @@ const safeGetPrinters = async () => {
     return printers;
   } catch (err) {
     console.error('Failed to fetch printers:', err);
-    return []; 
+    return [];
   }
 };
 
-const broadcastPrinterStatus = async (printerName) => {
-  try {
-    const printers = await safeGetPrinters();
-    const printer = printers.find(p => p.name === printerName);
-
-    if (printer) {
-      const status = {
-        type: 'printer_status',
-        printer: {
-          name: printer.name,
-          status: printer.status || 'unknown',
-          paperSizes: DNP_PRINTER_CONFIG.paperSizes,
-          isConnected: true
-        },
-        timestamp: new Date().toISOString()
-      };
-
-      clients.forEach(client => {
-        safeSendMessage(client, status);
-      });
-    } else {
-      const offlineStatus = {
-        type: 'printer_status',
-        printer: {
-          name: printerName,
-          status: 'offline',
-          paperSizes: DNP_PRINTER_CONFIG.paperSizes,
-          isConnected: false
-        },
-        timestamp: new Date().toISOString()
-      };
-
-      clients.forEach(client => {
-        safeSendMessage(client, offlineStatus);
-      });
-    }
-  } catch (error) {
-    console.error('Error broadcasting printer status:', error);
-
-    const errorStatus = {
-      type: 'printer_status',
-      error: error.message,
-      printer: {
-        name: printerName,
-        status: 'error',
-        paperSizes: DNP_PRINTER_CONFIG.paperSizes,
-        isConnected: false
-      },
-      timestamp: new Date().toISOString()
-    };
-
-    clients.forEach(client => {
-      safeSendMessage(client, errorStatus);
-    });
-  }
-};
-
-app.use(cors({
-  origin: '*',
-  methods: ['GET', 'POST'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Copies', 'X-Size']
-}));
-
-app.use(express.json({ 
-  limit: '10mb'
-}));
-
-app.use(express.urlencoded({ 
-  extended: true,
-  limit: '10mb' 
-}));
+app.use(cors({ origin: '*', methods: ['GET', 'POST'], allowedHeaders: ['Content-Type', 'Authorization', 'X-Copies', 'X-Size'] }));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 app.use((req, res, next) => {
   req.id = uuidv4();
@@ -182,129 +69,67 @@ app.use(express.static(path.join(__dirname, 'public')));
 const authenticateRequest = (req, res, next) => {
   try {
     const apiKey = req.headers.authorization;
-    if (!process.env.API_KEY) {
-      console.warn('WARNING: No API_KEY set in environment. Authentication is disabled.');
-      return next();
-    }
-
+    if (!process.env.API_KEY) return next();
     if (!apiKey || apiKey !== process.env.API_KEY) {
-      return res.status(401).json({ 
-        success: false,
-        error: 'Unauthorized',
-        message: 'Invalid or missing API key' 
-      });
+      return res.status(401).json({ success: false, error: 'Unauthorized', message: 'Invalid or missing API key' });
     }
     next();
   } catch (error) {
     console.error('Authentication error:', error);
-    return res.status(500).json({ 
-      success: false, 
-      error: 'Authentication error',
-      message: 'An error occurred during authentication'
-    });
+    return res.status(500).json({ success: false, error: 'Authentication error' });
   }
 };
 
-// Add new endpoint for dashboard stats (no authentication needed for admin dashboard)
 app.get('/api/dashboard/stats', async (req, res) => {
   try {
     const printers = await safeGetPrinters();
-    const apiKey = process.env.API_KEY || null;
-    
     return res.json({
       success: true,
       stats: {
         successfulPrints: successfulPrintCount,
-        apiKey: apiKey,
-        printers: printers.map(printer => ({
-          name: printer.name,
-          isConnected: true,
-          status: printer.status || 'online'
-        }))
+        apiKey: process.env.API_KEY || null,
+        printers: printers.map(p => ({ name: p.name, isConnected: true, status: p.status || 'online' }))
       }
     });
   } catch (err) {
-    console.error(`Error fetching dashboard stats:`, err);
-    return res.status(500).json({ 
-      success: false, 
-      error: 'Internal server error', 
-      message: err.message
-    });
+    return res.status(500).json({ success: false, error: 'Internal server error', message: err.message });
   }
 });
 
 app.get('/api/printers', async (req, res) => {
   try {
-    console.log(`[${req.id}] Admin dashboard fetching all printers`);
     const printers = await safeGetPrinters();
-    
-    const formattedPrinters = printers.map(printer => ({
-      id: printer.name,
-      name: printer.name,
-      isConnected: true
-    }));
-
-    console.log(`[${req.id}] Found ${formattedPrinters.length} printers for admin dashboard`);
     return res.json({
       success: true,
-      printers: formattedPrinters
+      printers: printers.map(p => ({ id: p.name, name: p.name, isConnected: true }))
     });
   } catch (err) {
-    console.error(`[${req.id}] Error fetching printers for admin dashboard:`, err);
-    return res.status(500).json({ 
-      success: false, 
-      error: 'Internal server error', 
-      message: err.message,
-      requestId: req.id
-    });
+    return res.status(500).json({ success: false, error: 'Internal server error', message: err.message });
   }
 });
 
 app.use('/api/printer', authenticateRequest);
 
 const safeCleanupFiles = (files) => {
-  if (!Array.isArray(files)) {
-    files = [files];
-  }
-  
+  if (!Array.isArray(files)) files = [files];
   files.forEach(file => {
-    if (file && typeof file === 'string') {
-      try {
-        if (fs.existsSync(file)) {
-          fs.unlinkSync(file);
-        }
-      } catch (e) {
-        console.error(`Error removing file ${file}:`, e);
-      }
+    try {
+      if (file && fs.existsSync(file)) fs.unlinkSync(file);
+    } catch (e) {
+      console.error(`Error removing file ${file}:`, e);
     }
   });
 };
 
-// 1. GET /api/printer - Return all printers
 app.get('/api/printer', async (req, res) => {
   try {
-    console.log(`[${req.id}] Fetching all printers`);
     const printers = await safeGetPrinters();
-    
-    const formattedPrinters = printers.map(printer => ({
-      id: printer.name,
-      name: printer.name,
-      isConnected: true
-    }));
-
-    console.log(`[${req.id}] Found ${formattedPrinters.length} printers`);
     return res.json({
       success: true,
-      printers: formattedPrinters
+      printers: printers.map(p => ({ id: p.name, name: p.name, isConnected: true }))
     });
   } catch (err) {
-    console.error(`[${req.id}] Error fetching printers:`, err);
-    return res.status(500).json({ 
-      success: false, 
-      error: 'Internal server error', 
-      message: err.message,
-      requestId: req.id
-    });
+    return res.status(500).json({ success: false, error: 'Internal server error', message: err.message });
   }
 });
 
@@ -315,9 +140,7 @@ app.post('/api/printer', (req, res) => {
   const copies = parseInt(req.headers['x-copies'] || '1', 10);
   const size = req.headers['x-size'] || '2x6';
 
-  const hotFolderBase = path.join(__dirname, 'hotfolder');
-  const sizeFolder = path.join(hotFolderBase, size);
-
+  const sizeFolder = path.join(__dirname, 'hotfolder', size);
   if (!fs.existsSync(sizeFolder)) {
     return res.status(400).json({ success: false, error: `Size folder '${size}' does not exist` });
   }
@@ -325,6 +148,7 @@ app.post('/api/printer', (req, res) => {
   const baseFilename = `print_${printerId}_${Date.now()}`;
   const imageFilename = `${baseFilename}.jpg`;
   const jobFilename = `${baseFilename}.job`;
+
   const imageFilepath = path.join(sizeFolder, imageFilename);
   const jobFilepath = path.join(sizeFolder, jobFilename);
 
@@ -337,7 +161,7 @@ app.post('/api/printer', (req, res) => {
   const timeout = setTimeout(() => {
     watcher.close();
     return res.status(202).json({ success: false, message: 'Timed out waiting for printer response.' });
-  }, 15000); 
+  }, 15000);
 
   const watcher = chokidar.watch([printedFolder, errorFolder], {
     persistent: true,
@@ -352,11 +176,7 @@ app.post('/api/printer', (req, res) => {
       watcher.close();
 
       const isPrinted = movedFilePath.includes('Printed');
-      
-      if (isPrinted) {
-        successfulPrintCount++;
-        console.log(`Print successful! Total successful prints: ${successfulPrintCount}`);
-      }
+      if (isPrinted) successfulPrintCount++;
 
       return res.status(200).json({
         success: isPrinted,
@@ -390,117 +210,50 @@ app.use('/api', (req, res) => {
 
 app.use((err, req, res, next) => {
   console.error(`Error in request ${req.id}:`, err);
-  
-  if (res.headersSent) {
-    return next(err);
-  }
-
-  res.status(500).json({
-    success: false,
-    error: 'Server error',
-    message: process.env.NODE_ENV === 'production' ? 'An unexpected error occurred' : err.message,
-    requestId: req.id
-  });
+  if (res.headersSent) return next(err);
+  res.status(500).json({ success: false, error: 'Server error', message: err.message, requestId: req.id });
 });
 
 app.use((req, res) => {
   if (req.accepts('html')) {
     res.status(404).sendFile(path.join(__dirname, 'public', '404.html'));
   } else {
-    res.status(404).json({
-      success: false,
-      error: 'Not Found',
-      message: 'The requested resource was not found.'
-    });
+    res.status(404).json({ success: false, error: 'Not Found' });
   }
 });
 
+// 404 fallback page generation
 const notFoundPath = path.join(__dirname, 'public', '404.html');
 if (!fs.existsSync(notFoundPath)) {
-  const notFoundDir = path.join(__dirname, 'public');
-  if (!fs.existsSync(notFoundDir)) {
-    fs.mkdirSync(notFoundDir, { recursive: true });
+  if (!fs.existsSync(path.join(__dirname, 'public'))) {
+    fs.mkdirSync(path.join(__dirname, 'public'), { recursive: true });
   }
-  
   fs.writeFileSync(notFoundPath, `
     <!DOCTYPE html>
-    <html>
-    <head>
-      <title>404 - Page Not Found</title>
-      <style>
-        body { font-family: Arial, sans-serif; text-align: center; padding: 50px; }
-        h1 { color: #333; }
-        p { color: #666; }
-        a { color: #3498db; text-decoration: none; }
-        a:hover { text-decoration: underline; }
-      </style>
-    </head>
-    <body>
-      <h1>404 - Page Not Found</h1>
-      <p>The page you are looking for does not exist.</p>
-      <p><a href="/">Return to Home</a></p>
-    </body>
-    </html>
+    <html><head><title>404</title></head><body><h1>404 - Not Found</h1></body></html>
   `);
 }
 
 const server = app.listen(PORT, '0.0.0.0', async () => {
-  console.log(`DNP Printer Server running on port ${PORT}`);
-
-  console.log('Checking for available printers...');
+  console.log(`Server running on port ${PORT}`);
   try {
     const printers = await safeGetPrinters();
     if (printers.length > 0) {
       console.log('Available printers:');
-      printers.forEach(printer => {
-        console.log(`- ${printer.name}`);
-      });
-
-      const targetPrinter = printers.find(p => p.name === DNP_PRINTER_CONFIG.name);
-      if (targetPrinter) {
-        console.log(`\n✅ Target printer "${DNP_PRINTER_CONFIG.name}" is available`);
-      } else {
-        console.log(`\n⚠️ WARNING: Target printer "${DNP_PRINTER_CONFIG.name}" not found. Available printers are:`);
-        printers.forEach(printer => {
-          console.log(`  - ${printer.name}`);
-        });
-        console.log('\nYou may need to update the DNP_PRINTER_CONFIG.name in the code.');
-      }
+      printers.forEach(p => console.log(`- ${p.name}`));
     } else {
-      console.log('⚠️ No printers detected. Please make sure your printer is connected and powered on.');
+      console.log('⚠️ No printers detected.');
     }
-
-    setInterval(() => {
-      try {
-        broadcastPrinterStatus(DNP_PRINTER_CONFIG.name);
-      } catch (error) {
-        console.error('Error in periodic status update:', error);
-      }
-    }, 5000); 
   } catch (err) {
     console.error('Error detecting printers:', err);
-    console.log('⚠️ The server will continue running, but printer functionality may not work.');
   }
 });
 
 server.on('error', (error) => {
-  console.error('Server error:', error);
   if (error.code === 'EADDRINUSE') {
-    console.log(`Port ${PORT} is in use. Trying again in 5 seconds...`);
-    setTimeout(() => {
-      server.close();
-      server.listen(PORT, '0.0.0.0');
-    });
-  }
-});
-
-server.on('upgrade', (request, socket, head) => {
-  try {
-    wss.handleUpgrade(request, socket, head, (ws) => {
-      wss.emit('connection', ws, request);
-    });
-  } catch (error) {
-    console.error('WebSocket upgrade error:', error);
-    socket.destroy();
+    console.error(`Port ${PORT} is in use. Retrying...`);
+    setTimeout(() => server.listen(PORT, '0.0.0.0'), 5000);
+  } else {
+    console.error('Server error:', error);
   }
 });

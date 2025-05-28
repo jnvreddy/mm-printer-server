@@ -2,10 +2,26 @@
   "name": "mm-printer-server",
   "version": "1.0.0",
   "description": "",
-  "main": "script.js",
+  "main": "main.js",
+  "build": {
+    "appId": "com.yourcompany.magicmomentsprinter",
+    "productName": "Magic Moments Printer",
+    "files": [
+      "**/*",
+      "!node_modules/electron*",
+      "!**/*.md",
+      "!src",
+      "!tests"
+    ],
+  "win": {
+    "target": "nsis"
+    }
+  },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node server.js"
+    "start": "electron .",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder"
   },
   "repository": {
     "type": "git",
@@ -34,6 +50,7 @@
     "ws": "^8.16.0"
   },
   "devDependencies": {
-    "electron": "^36.3.1"
+    "electron": "^36.3.1",
+    "electron-builder": "^26.0.12"
   }
 }

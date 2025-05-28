@@ -234,26 +234,58 @@ if (!fs.existsSync(notFoundPath)) {
   `);
 }
 
-const server = app.listen(PORT, '0.0.0.0', async () => {
-  console.log(`Server running on port ${PORT}`);
-  try {
-    const printers = await safeGetPrinters();
-    if (printers.length > 0) {
-      console.log('Available printers:');
-      printers.forEach(p => console.log(`- ${p.name}`));
-    } else {
-      console.log('⚠️ No printers detected.');
-    }
-  } catch (err) {
-    console.error('Error detecting printers:', err);
-  }
-});
+let serverInstance;
 
-server.on('error', (error) => {
-  if (error.code === 'EADDRINUSE') {
-    console.error(`Port ${PORT} is in use. Retrying...`);
-    setTimeout(() => server.listen(PORT, '0.0.0.0'), 5000);
-  } else {
-    console.error('Server error:', error);
-  }
-});
+async function start() {
+  return new Promise((resolve, reject) => {
+    serverInstance = app.listen(PORT, '0.0.0.0', async () => {
+      console.log(`Server running on port ${PORT}`);
+      try {
+        const printers = await safeGetPrinters();
+        if (printers.length > 0) {
+          console.log('Available printers:');
+          printers.forEach(p => console.log(`- ${p.name}`));
+        } else {
+          console.log('⚠️ No printers detected.');
+        }
+      } catch (err) {
+        console.error('Error detecting printers:', err);
+      }
+      resolve();
+    });
+
+    serverInstance.on('error', (error) => {
+      if (error.code === 'EADDRINUSE') {
+        console.error(`Port ${PORT} is in use. Retrying...`);
+        setTimeout(() => {
+          serverInstance.close();
+          start();
+        }, 5000);
+      } else {
+        console.error('Server error:', error);
+        reject(error);
+      }
+    });
+  });
+}
+
+async function stop() {
+  return new Promise((resolve, reject) => {
+    if (serverInstance) {
+      serverInstance.close((err) => {
+        if (err) {
+          reject(err);
+        } else {
+          console.log('Server stopped');
+          resolve();
+        }
+      });
+    } else {
+      resolve();
+    }
+  });
+}
+
+// Export start and stop to use from Electron
+module.exports = { start, stop };
+

@@ -135,13 +135,78 @@ app.get('/api/printer', async (req, res) => {
 
 app.use('/api/printer', express.raw({ type: 'image/jpeg', limit: '10mb' }));
 
+// app.post('/api/printer', (req, res) => {
+//   const printerId = req.headers['x-printer-id'] || "DNP Printer";
+//   let copies = parseInt(req.headers['x-copies'] || '1', 10);
+//   const size = req.headers['x-size'] || '2x6';
+
+//   if (size === '2x6' || size === '6x2') {
+//     copies = Math.ceil(copies / 2); 
+//   }
+
+//   const sizeFolder = path.join(__dirname, size);
+//   if (!fs.existsSync(sizeFolder)) {
+//     return res.status(400).json({ success: false, error: `Size folder '${size}' does not exist` });
+//   }
+
+//   const baseFilename = `print_${printerId}_${Date.now()}`;
+//   const imageFilename = `${baseFilename}.jpg`;
+//   const jobFilename = `${baseFilename}.job`;
+
+//   const imageFilepath = path.join(sizeFolder, imageFilename);
+//   const jobFilepath = path.join(sizeFolder, jobFilename);
+
+//   fs.writeFileSync(imageFilepath, req.body);
+//   fs.writeFileSync(jobFilepath, `copies=${copies}\nprinter=${printerId}\nsize=${size}`);
+
+//   const checkInterval = setInterval(() => {
+//     if (!fs.existsSync(imageFilepath)) {
+//       clearInterval(checkInterval);
+//       clearTimeout(timeout);
+      
+//       if (fs.existsSync(jobFilepath)) {
+//         fs.unlinkSync(jobFilepath);
+//       }
+      
+//       successfulPrintCount++;
+      
+//       return res.status(200).json({
+//         success: true,
+//         status: 'Printed successfully',
+//         file: imageFilename,
+//         message: 'File processed and removed from queue'
+//       });
+//     }
+//   }, 2000); 
+
+//   const timeout = setTimeout(() => {
+//     clearInterval(checkInterval);
+    
+//     try {
+//       if (fs.existsSync(imageFilepath)) {
+//         fs.unlinkSync(imageFilepath);
+//       }
+//       if (fs.existsSync(jobFilepath)) {
+//         fs.unlinkSync(jobFilepath);
+//       }
+//     } catch (error) {
+//       console.error('Error cleaning up files on timeout:', error);
+//     }
+    
+//     return res.status(202).json({ 
+//       success: false, 
+//       message: 'Timed out waiting for printer response.' 
+//     });
+//   }, 30000);
+// });
+
 app.post('/api/printer', (req, res) => {
   const printerId = req.headers['x-printer-id'] || "DNP Printer";
   let copies = parseInt(req.headers['x-copies'] || '1', 10);
   const size = req.headers['x-size'] || '2x6';
 
   if (size === '2x6' || size === '6x2') {
-    copies = Math.ceil(copies / 2); 
+    copies = Math.ceil(copies / 2);
   }
 
   const sizeFolder = path.join(__dirname, size);
@@ -150,56 +215,57 @@ app.post('/api/printer', (req, res) => {
   }
 
   const baseFilename = `print_${printerId}_${Date.now()}`;
-  const imageFilename = `${baseFilename}.jpg`;
-  const jobFilename = `${baseFilename}.job`;
+  const savedFiles = [];
 
-  const imageFilepath = path.join(sizeFolder, imageFilename);
-  const jobFilepath = path.join(sizeFolder, jobFilename);
+  for (let i = 1; i <= copies; i++) {
+    const filename = `${baseFilename}_c${i}.jpg`;
+    const filepath = path.join(sizeFolder, filename);
 
-  fs.writeFileSync(imageFilepath, req.body);
-  fs.writeFileSync(jobFilepath, `copies=${copies}\nprinter=${printerId}\nsize=${size}`);
+    fs.writeFileSync(filepath, req.body);
+    savedFiles.push(filename);
+  }
+
+  const firstFilePath = path.join(sizeFolder, `${baseFilename}_c1.jpg`);
 
   const checkInterval = setInterval(() => {
-    if (!fs.existsSync(imageFilepath)) {
+    if (!fs.existsSync(firstFilePath)) {
       clearInterval(checkInterval);
       clearTimeout(timeout);
-      
-      if (fs.existsSync(jobFilepath)) {
-        fs.unlinkSync(jobFilepath);
+
+      for (const filename of savedFiles) {
+        const fp = path.join(sizeFolder, filename);
+        if (fs.existsSync(fp)) fs.unlinkSync(fp);
       }
-      
+
       successfulPrintCount++;
-      
+
       return res.status(200).json({
         success: true,
         status: 'Printed successfully',
-        file: imageFilename,
-        message: 'File processed and removed from queue'
+        files: savedFiles,
+        message: 'Files processed and removed from queue'
       });
     }
-  }, 2000); 
+  }, 2000);
 
   const timeout = setTimeout(() => {
     clearInterval(checkInterval);
-    
+
     try {
-      if (fs.existsSync(imageFilepath)) {
-        fs.unlinkSync(imageFilepath);
-      }
-      if (fs.existsSync(jobFilepath)) {
-        fs.unlinkSync(jobFilepath);
+      for (const filename of savedFiles) {
+        const fp = path.join(sizeFolder, filename);
+        if (fs.existsSync(fp)) fs.unlinkSync(fp);
       }
     } catch (error) {
       console.error('Error cleaning up files on timeout:', error);
     }
-    
+
     return res.status(202).json({ 
       success: false, 
       message: 'Timed out waiting for printer response.' 
     });
   }, 30000);
 });
-
 
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));

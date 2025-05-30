@@ -137,8 +137,12 @@ app.use('/api/printer', express.raw({ type: 'image/jpeg', limit: '10mb' }));
 
 app.post('/api/printer', (req, res) => {
   const printerId = req.headers['x-printer-id'] || "DNP Printer";
-  const copies = parseInt(req.headers['x-copies'] || '1', 10);
+  let copies = parseInt(req.headers['x-copies'] || '1', 10);
   const size = req.headers['x-size'] || '2x6';
+
+  if (size === '2x6' || size === '6x2') {
+    copies = Math.ceil(copies / 2); 
+  }
 
   const sizeFolder = path.join(__dirname, size);
   if (!fs.existsSync(sizeFolder)) {
@@ -173,9 +177,8 @@ app.post('/api/printer', (req, res) => {
         message: 'File processed and removed from queue'
       });
     }
-  }, 2000); // Check every 2 seconds
+  }, 2000); 
 
-  
   const timeout = setTimeout(() => {
     clearInterval(checkInterval);
     
@@ -196,6 +199,7 @@ app.post('/api/printer', (req, res) => {
     });
   }, 30000);
 });
+
 
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));

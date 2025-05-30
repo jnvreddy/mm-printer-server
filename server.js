@@ -140,7 +140,7 @@ app.post('/api/printer', (req, res) => {
   const copies = parseInt(req.headers['x-copies'] || '1', 10);
   const size = req.headers['x-size'] || '2x6';
 
-  const sizeFolder = path.join('C:',"DNP", size);
+  const sizeFolder = path.join(__dirname, size);
   if (!fs.existsSync(sizeFolder)) {
     return res.status(400).json({ success: false, error: `Size folder '${size}' does not exist` });
   }
@@ -155,37 +155,46 @@ app.post('/api/printer', (req, res) => {
   fs.writeFileSync(imageFilepath, req.body);
   fs.writeFileSync(jobFilepath, `copies=${copies}\nprinter=${printerId}\nsize=${size}`);
 
-  const printedFolder = path.join(sizeFolder, 'Printed');
-  const errorFolder = path.join(sizeFolder, 'Error');
-
-  const timeout = setTimeout(() => {
-    watcher.close();
-    return res.status(202).json({ success: false, message: 'Timed out waiting for printer response.' });
-  }, 15000);
-
-  const watcher = chokidar.watch([printedFolder, errorFolder], {
-    persistent: true,
-    depth: 0,
-    ignoreInitial: true
-  });
-
-  watcher.on('add', (movedFilePath) => {
-    const movedFilename = path.basename(movedFilePath);
-    if (movedFilename === imageFilename) {
+  const checkInterval = setInterval(() => {
+    if (!fs.existsSync(imageFilepath)) {
+      clearInterval(checkInterval);
       clearTimeout(timeout);
-      watcher.close();
-
-      const isPrinted = movedFilePath.includes('Printed');
-      if (isPrinted) successfulPrintCount++;
-
+      
+      if (fs.existsSync(jobFilepath)) {
+        fs.unlinkSync(jobFilepath);
+      }
+      
+      successfulPrintCount++;
+      
       return res.status(200).json({
-        success: isPrinted,
-        status: isPrinted ? 'Printed successfully' : 'Failed to print',
-        file: movedFilename,
-        movedTo: isPrinted ? 'Printed folder' : 'Error folder',
+        success: true,
+        status: 'Printed successfully',
+        file: imageFilename,
+        message: 'File processed and removed from queue'
       });
     }
-  });
+  }, 2000); // Check every 2 seconds
+
+  
+  const timeout = setTimeout(() => {
+    clearInterval(checkInterval);
+    
+    try {
+      if (fs.existsSync(imageFilepath)) {
+        fs.unlinkSync(imageFilepath);
+      }
+      if (fs.existsSync(jobFilepath)) {
+        fs.unlinkSync(jobFilepath);
+      }
+    } catch (error) {
+      console.error('Error cleaning up files on timeout:', error);
+    }
+    
+    return res.status(202).json({ 
+      success: false, 
+      message: 'Timed out waiting for printer response.' 
+    });
+  }, 30000);
 });
 
 app.get('/', (req, res) => {

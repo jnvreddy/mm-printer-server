@@ -14,7 +14,8 @@
       "!tests"
     ],
   "win": {
-    "target": "nsis"
+    "target": "nsis",
+    "icon": "./public/MMj.ico"
     }
   },
   "scripts": {

@@ -108,7 +108,7 @@ app.get('/api/printers', async (req, res) => {
   }
 });
 
-app.use('/api/printer', authenticateRequest);
+//app.use('/api/printer', authenticateRequest);
 
 const safeCleanupFiles = (files) => {
   if (!Array.isArray(files)) files = [files];
@@ -210,6 +210,7 @@ app.post('/api/printer', (req, res) => {
   }
 
   const sizeFolder = path.join("C:","DNP","HotFolderPrint","Prints", `s${size}`);
+ // const sizeFolder = path.join(__dirname,"Prints", `s${size}`);
   if (!fs.existsSync(sizeFolder)) {
     return res.status(400).json({ success: false, error: `Size folder '${size}' does not exist` });
   }

@@ -209,8 +209,8 @@ app.post('/api/printer', (req, res) => {
     copies = Math.ceil(copies / 2);
   }
 
-  const sizeFolder = path.join("C:","DNP","HotFolderPrint","Prints", `s${size}`);
- // const sizeFolder = path.join(__dirname,"Prints", `s${size}`);
+  // const sizeFolder = path.join("C:","DNP","HotFolderPrint","Prints", `s${size}`);
+  // const sizeFolder = path.join(__dirname,"Prints");
   if (!fs.existsSync(sizeFolder)) {
     return res.status(400).json({ success: false, error: `Size folder '${size}' does not exist` });
   }

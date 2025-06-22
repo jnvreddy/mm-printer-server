@@ -2,8 +2,8 @@
 <html lang="en">
 
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Print Server Dashboard</title>
     <style>
         * {
@@ -58,38 +58,6 @@
             color: #333;
             margin: 0;
             font-size: 1.3rem;
-        }
-
-        .api-key-container {
-            display: flex;
-            align-items: center;
-            gap: 15px;
-        }
-
-        .api-key-display {
-            font-family: monospace;
-            font-size: 1rem;
-            background: #f8f9fa;
-            padding: 12px 15px;
-            border-radius: 8px;
-            border: 2px solid #e9ecef;
-            flex: 1;
-            user-select: all;
-        }
-
-        .toggle-btn {
-            padding: 8px 16px;
-            border: none;
-            border-radius: 6px;
-            background: #6c757d;
-            color: white;
-            cursor: pointer;
-            font-size: 0.9rem;
-            transition: background-color 0.3s ease;
-        }
-
-        .toggle-btn:hover {
-            background: #5a6268;
         }
 
         .print-count {
@@ -211,22 +179,6 @@
             font-size: 0.9rem;
             margin-top: 20px;
         }
-
-        .no-api-key {
-            color: #dc3545;
-            font-style: italic;
-        }
-
-        @media (max-width: 768px) {
-            .api-key-container {
-                flex-direction: column;
-                align-items: stretch;
-            }
-
-            .header h1 {
-                font-size: 2rem;
-            }
-        }
     </style>
 </head>
 
@@ -234,20 +186,6 @@
     <div class="dashboard">
         <div class="header">
             <h1>🖨️ Print Server Dashboard</h1>
-        </div>
-
-        <!-- API Key Section -->
-        <div class="section">
-            <div class="section-header">
-                <h3>🔐 API Key</h3>
-            </div>
-            <div class="api-key-container">
-                <div id="api-key-display" class="api-key-display">Loading...</div>
-                <button id="toggle-btn" class="toggle-btn">Show</button>
-            </div>
-            <div class="last-updated">
-                Last updated: <span id="last-updated">--</span>
-            </div>
         </div>
 
         <!-- Print Statistics Section -->
@@ -268,61 +206,20 @@
                 <div class="loading">Loading printer information...</div>
             </div>
         </div>
-
     </div>
 
     <script>
-        let isApiKeyVisible = false;
-        let currentApiKey = '';
-        let maskedApiKey = '';
-
-        function maskApiKey(key) {
-            if (!key || key.length < 8) return key;
-            return key.substring(0, 4) + '****' + key.substring(key.length - 4);
-        }
-
-        function toggleApiKey() {
-            const display = document.getElementById('api-key-display');
-            const button = document.getElementById('toggle-btn');
-
-            if (isApiKeyVisible) {
-                display.textContent = maskedApiKey;
-                button.textContent = 'Show';
-                isApiKeyVisible = false;
-            } else {
-                display.textContent = currentApiKey;
-                button.textContent = 'Hide';
-                isApiKeyVisible = true;
-            }
-        }
-
         async function loadDashboardData() {
             try {
                 const response = await fetch('/api/dashboard/stats');
                 const data = await response.json();
 
                 if (data.success) {
-                    // Update API key
-                    currentApiKey = data.stats.apiKey || 'Not Set';
-                    maskedApiKey = data.stats.apiKey ? maskApiKey(data.stats.apiKey) : 'Not Set';
-
-                    const apiKeyDisplay = document.getElementById('api-key-display');
-                    if (data.stats.apiKey) {
-                        apiKeyDisplay.textContent = isApiKeyVisible ? currentApiKey : maskedApiKey;
-                        apiKeyDisplay.className = 'api-key-display';
-                    } else {
-                        apiKeyDisplay.textContent = 'Not Set';
-                        apiKeyDisplay.className = 'api-key-display no-api-key';
-                    }
-
                     // Update print count
                     document.getElementById('print-count').textContent = data.stats.successfulPrints;
 
                     // Update printers
                     renderPrinters(data.stats.printers);
-
-                    // Update last updated time
-                    document.getElementById('last-updated').textContent = new Date().toLocaleTimeString();
                 } else {
                     throw new Error(data.error || 'Failed to load dashboard data');
                 }
@@ -342,26 +239,23 @@
             }
 
             const printersHTML = printers.map(printer => `
-                <div class="printer-card ${printer.isConnected ? 'online' : 'offline'}">
-                    <div class="printer-name">
-                        <span class="status-indicator ${printer.isConnected ? 'online' : 'offline'}"></span>
-                        ${printer.name}
-                    </div>
-                    <div class="printer-status">
-                        Status: ${printer.isConnected ? 'Online' : 'Offline'}
-                    </div>
-                </div>
-            `).join('');
+        <div class="printer-card ${printer.isConnected ? 'online' : 'offline'}">
+          <div class="printer-name">
+            <span class="status-indicator ${printer.isConnected ? 'online' : 'offline'}"></span>
+            ${printer.name}
+          </div>
+          <div class="printer-status">
+            Status: ${printer.isConnected ? 'Online' : 'Offline'}
+          </div>
+        </div>
+      `).join('');
 
             container.innerHTML = `<div class="printers-grid">${printersHTML}</div>`;
         }
 
         function init() {
-            document.getElementById('toggle-btn').addEventListener('click', toggleApiKey);
-
             loadDashboardData();
-
-            setInterval(loadDashboardData, 60000);
+            setInterval(loadDashboardData, 60000); // Refresh every 60s
         }
 
         window.addEventListener('load', init);

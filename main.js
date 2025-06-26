@@ -1,35 +1,39 @@
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, session  } = require('electron');
 const path = require('path');
-const server = require('./server'); // Your Express server file
+const server = require('./server');
 
 let mainWindow;
 
-function createWindow() {
+function createWindow(tunnelUrl) {
   mainWindow = new BrowserWindow({
     width: 1000,
     height: 800,
     webPreferences: {
-      nodeIntegration: false, // Usually false for security
+      nodeIntegration: false,
       contextIsolation: true,
     }
   });
 
-  // Load your Express server URL
-  mainWindow.loadURL(`http://localhost:${process.env.PORT || 3000}`);
-
+  mainWindow.loadURL(tunnelUrl);
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
 }
 
-// Start Express server then launch Electron window
-app.whenReady().then(() => {
-  server.start().then(() => {
-    createWindow();
-  });
+app.whenReady().then(async () => {
+  try {
+    const tunnelUrl = await server.start();
+    session.defaultSession.webRequest.onBeforeSendHeaders((details, callback) => {
+      details.requestHeaders['bypass-tunnel-reminder'] = 'true';
+      callback({ requestHeaders: details.requestHeaders });
+    });
+    createWindow(tunnelUrl);
+  } catch (error) {
+    console.error('❌ Failed to start tunnel:', error);
+    app.quit();
+  }
 });
 
-// Graceful shutdown of Express when Electron app quits
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     server.stop().then(() => {
@@ -39,5 +43,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('activate', () => {
-  if (mainWindow === null) createWindow();
+  if (mainWindow === null) {
+    createWindow('http://localhost:3000');
+  }
 });

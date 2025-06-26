@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const cors = require('cors');
 const morgan = require('morgan');
+const localtunnel = require('localtunnel');
 const { v4: uuidv4 } = require('uuid');
 const { getPrinters } = require('pdf-to-printer');
 const chokidar = require('chokidar');
@@ -44,7 +45,7 @@ const safeGetPrinters = async () => {
   }
 };
 
-app.use(cors({ origin: '*', methods: ['GET', 'POST'], allowedHeaders: ['Content-Type', 'Authorization', 'X-Copies', 'X-Size'] }));
+app.use(cors({ origin: '*', methods: ['GET', 'POST'], allowedHeaders: ['Content-Type', 'Authorization', 'X-Copies', 'X-Size','bypass-tunnel-reminder'] }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
@@ -93,6 +94,14 @@ app.get('/api/dashboard/stats', async (req, res) => {
     });
   } catch (err) {
     return res.status(500).json({ success: false, error: 'Internal server error', message: err.message });
+  }
+});
+
+app.get('/api/tunnel', (req, res) => {
+  if (publicUrl) {
+    res.json({ success: true, url: publicUrl });
+  } else {
+    res.status(503).json({ success: false, message: 'Tunnel not ready' });
   }
 });
 
@@ -316,55 +325,39 @@ if (!fs.existsSync(notFoundPath)) {
 
 let serverInstance;
 
+let publicUrl = null;
+
 async function start() {
   return new Promise((resolve, reject) => {
-    serverInstance = app.listen(PORT, '0.0.0.0', async () => {
-      console.log(`Server running on port ${PORT}`);
+    const serverInstance = app.listen(PORT, async () => {
+      console.log(`🚀 Local server running at http://localhost:${PORT}`);
       try {
-        const printers = await safeGetPrinters();
-        if (printers.length > 0) {
-          console.log('Available printers:');
-          printers.forEach(p => console.log(`- ${p.name}`));
-        } else {
-          console.log('⚠️ No printers detected.');
-        }
+        tunnel = await localtunnel({ port: PORT, subdomain: null }); // or specify subdomain
+        console.log(`🌐 Public URL: ${tunnel.url}`);
+        publicUrl = tunnel.url;
+        tunnel.on('close', () => {
+          console.log('🛑 Tunnel closed');
+        });
+        resolve(tunnel.url);
       } catch (err) {
-        console.error('Error detecting printers:', err);
+        reject(err);
       }
-      resolve();
     });
 
-    serverInstance.on('error', (error) => {
-      if (error.code === 'EADDRINUSE') {
-        console.error(`Port ${PORT} is in use. Retrying...`);
-        setTimeout(() => {
-          serverInstance.close();
-          start();
-        }, 5000);
-      } else {
-        console.error('Server error:', error);
-        reject(error);
-      }
+    serverInstance.on('error', (err) => {
+      reject(err);
     });
   });
 }
+
 
 async function stop() {
-  return new Promise((resolve, reject) => {
-    if (serverInstance) {
-      serverInstance.close((err) => {
-        if (err) {
-          reject(err);
-        } else {
-          console.log('Server stopped');
-          resolve();
-        }
-      });
-    } else {
-      resolve();
-    }
-  });
+  if (tunnel) {
+    await tunnel.close();
+    console.log('🔌 Tunnel closed');
+  }
 }
+
 
 // Export start and stop to use from Electron
 module.exports = { start, stop };

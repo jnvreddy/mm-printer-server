@@ -1,37 +1,56 @@
 {
   "name": "mm-printer-server",
   "version": "1.0.0",
-  "description": "",
+  "description": "Magic Moments Printer Server",
   "main": "main.js",
-  "build": {
-    "appId": "com.yourcompany.magicmomentsprinter",
-    "productName": "Magic Moments Printer",
-    "files": [
-      "**/*",
-      "!node_modules/electron*",
-      "!**/*.md",
-      "!src",
-      "!tests"
-    ],
-  "win": {
-    "target": "nsis",
-    "icon": "./public/MMj.ico"
-    }
-  },
+  "type": "commonjs",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
     "start": "electron .",
     "pack": "electron-builder --dir",
     "dist": "electron-builder"
   },
+  "build": {
+    "appId": "com.magicmoments.printerserver",
+    "productName": "Magic Moments Printer",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "**/*",
+      "!node_modules/*/{test,__tests__,examples}/**",
+      "!node_modules/.cache",
+      "!**/*.md",
+      "!src",
+      "!tests",
+      "!.git",
+      "!*.log"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "./public/MMj.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Magic Moments Printer"
+    }
+  },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/jnvreddy/mm-printer-server.git"
+    "url": "https://github.com/jnvreddy/mm-printer-server"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs",
+  "keywords": [
+    "electron",
+    "print",
+    "server",
+    "localtunnel",
+    "photo-booth"
+  ],
+  "author": "J Nagavardhan Reddy",
+  "license": "MIT",
   "bugs": {
     "url": "https://github.com/jnvreddy/mm-printer-server/issues"
   },
@@ -42,8 +61,10 @@
     "cors": "^2.8.5",
     "dotenv": "^16.5.0",
     "express": "^5.1.0",
+    "localtunnel": "^2.0.2",
     "morgan": "^1.10.0",
     "multer": "^1.4.5-lts.2",
+    "ngrok": "^4.3.3",
     "pdf-to-printer": "^5.6.0",
     "printer-lp": "^1.0.3",
     "sharp": "^0.33.2",

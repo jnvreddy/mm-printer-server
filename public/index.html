@@ -188,6 +188,9 @@
             <h1>🖨️ Print Server Dashboard</h1>
         </div>
 
+        <div id="tunnel-url" class="section" style="font-size: 1.1rem; margin-top: 10px; color: #000;">
+            Loading tunnel URL...    </div>
+
         <!-- Print Statistics Section -->
         <div class="section">
             <div class="section-header">
@@ -209,6 +212,24 @@
     </div>
 
     <script>
+    async function loadTunnelUrl() {
+        try {
+            const res = await fetch('/api/tunnel');
+            const data = await res.json();
+
+            const tunnelEl = document.getElementById('tunnel-url');
+            if (data.success && data.url) {
+                tunnelEl.innerHTML = `🌐 <strong>Public URL:</strong> <a href="${data.url}" target="_blank" style="color:#000;">${data.url}</a>`;
+            } else {
+                tunnelEl.textContent = 'Tunnel URL not available';
+            }
+        } catch (err) {
+            document.getElementById('tunnel-url').textContent = 'Failed to load tunnel URL';
+            console.error(err);
+        }
+    }
+
+
         async function loadDashboardData() {
             try {
                 const response = await fetch('/api/dashboard/stats');
@@ -255,6 +276,7 @@
 
         function init() {
             loadDashboardData();
+            loadTunnelUrl();
             setInterval(loadDashboardData, 60000); // Refresh every 60s
         }
 

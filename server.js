@@ -145,7 +145,6 @@ app.get('/api/printer', async (req, res) => {
 app.use('/api/printer', express.raw({ type: 'image/jpeg', limit: '10mb' }));
 
 app.post('/api/printer', (req, res) => {
-  const printerId = req.headers['x-printer-id'] || "DNP Printer";
   let copies = parseInt(req.headers['x-copies'] || '1', 10);
   const size = req.headers['x-size'] || '2x6';
 
@@ -166,7 +165,7 @@ app.post('/api/printer', (req, res) => {
   const jobFilepath = path.join(sizeFolder, jobFilename);
 
   fs.writeFileSync(imageFilepath, req.body);
-  fs.writeFileSync(jobFilepath, `copies=${copies}\nprinter=${printerId}\nsize=${size}`);
+  fs.writeFileSync(jobFilepath, `copies=${copies}`);
 
   const checkInterval = setInterval(() => {
     if (!fs.existsSync(imageFilepath)) {
@@ -210,7 +209,6 @@ app.post('/api/printer', (req, res) => {
 });
 
 // app.post('/api/printer', (req, res) => {
-//   const printerId = req.headers['x-printer-id'] || "DNP Printer";
 //   let copies = parseInt(req.headers['x-copies'] || '1', 10);
 //   const size = req.headers['x-size'] || '2x6';
 

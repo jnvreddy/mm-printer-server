@@ -148,83 +148,173 @@ app.post('/api/printer', (req, res) => {
   let copies = parseInt(req.headers['x-copies'] || '1', 10);
   const size = req.headers['x-size'] || '2x6';
 
+  // Apply the halving logic for 2x6 and 6x2 sizes
+  let actualCopies = copies;
   if (size === '2x6' || size === '6x2') {
-    copies = Math.ceil(copies / 2); 
+    actualCopies = Math.ceil(copies / 2);
   }
 
-  //const sizeFolder = path.join("C:","DNP","HotFolderPrint","Prints", `s${size}`);
+  //const sizeFolder = path.join("C:", "DNP", "HotFolderPrint", "Prints", `s${size}`);
 
   const sizeFolder = path.join(__dirname, "Prints");
   if (!fs.existsSync(sizeFolder)) {
-    return res.status(400).json({ success: false, error: `Size folder '${size}' does not exist` });
+    return res.status(400).json({ 
+      success: false, 
+      error: `Size folder '${size}' does not exist` 
+    });
   }
 
-  const baseFilename = `print_DS1HX_${Date.now()}`;
-  const imageFilename = `${baseFilename}.jpg`;
-  const jobFilename = `${baseFilename}.job`;
+  const baseTimestamp = Date.now();
+  const createdFiles = [];
+  
+  try {
+    // Create separate image and job files for each copy
+    for (let i = 1; i <= actualCopies; i++) {
+      const baseFilename = `print_DS1HX_${baseTimestamp}_copy${i}`;
+      const imageFilename = `${baseFilename}.jpg`;
+      const jobFilename = `${baseFilename}.job`;
 
-  const imageFilepath = path.join(sizeFolder, imageFilename);
-  const jobFilepath = path.join(sizeFolder, jobFilename);
+      const imageFilepath = path.join(sizeFolder, imageFilename);
+      const jobFilepath = path.join(sizeFolder, jobFilename);
 
-  fs.writeFileSync(imageFilepath, req.body);
-  fs.writeFileSync(jobFilepath, `copies=${copies}`);
+      // Write the image file (same image for each copy)
+      fs.writeFileSync(imageFilepath, req.body);
+      
+      // Write the job file (1 copy per job file since we're creating multiple files)
+      fs.writeFileSync(jobFilepath, 'copies=1');
 
-  const checkInterval = setInterval(() => {
-    if (!fs.existsSync(imageFilepath)) {
-      clearInterval(checkInterval);
-      clearTimeout(timeout);
+      createdFiles.push({
+        copyNumber: i,
+        imageFilename,
+        jobFilename,
+        imageFilepath,
+        jobFilepath,
+        processed: false
+      });
+    }
 
-      const handleSuccessResponse = () => {
+    console.log(`Created ${actualCopies} sets of files for printing`);
+
+    // Track the processing of all files
+    let processedCount = 0;
+    let hasResponded = false;
+
+    const checkAllFiles = () => {
+      let allProcessed = true;
+      let currentProcessedCount = 0;
+
+      createdFiles.forEach(file => {
+        if (!file.processed && !fs.existsSync(file.imageFilepath)) {
+          file.processed = true;
+          currentProcessedCount++;
+          console.log(`File ${file.copyNumber} processed: ${file.imageFilename}`);
+          
+          // Clean up job file if it still exists
+          if (fs.existsSync(file.jobFilepath)) {
+            setTimeout(() => {
+              try {
+                if (fs.existsSync(file.jobFilepath)) {
+                  fs.unlinkSync(file.jobFilepath);
+                  console.log(`Cleaned up job file: ${file.jobFilename}`);
+                }
+              } catch (err) {
+                console.error(`Error deleting job file ${file.jobFilename}:`, err);
+              }
+            }, 2000);
+          }
+        }
+        
+        if (file.processed) {
+          currentProcessedCount++;
+        } else if (fs.existsSync(file.imageFilepath)) {
+          allProcessed = false;
+        }
+      });
+
+      processedCount = currentProcessedCount;
+
+      // Send response when all files are processed
+      if (allProcessed && processedCount === actualCopies && !hasResponded) {
+        hasResponded = true;
+        clearInterval(checkInterval);
+        clearTimeout(timeout);
+
         setTimeout(() => {
-          successfulPrintCount++;
+          successfulPrintCount += actualCopies;
           return res.status(200).json({
             success: true,
-            status: 'Printed successfully',
-            file: imageFilename,
-            message: 'File processed and removed from queue'
+            status: 'All copies printed successfully',
+            totalCopies: actualCopies,
+            processedCopies: processedCount,
+            message: `All ${actualCopies} copies processed and removed from queue`
           });
-        }, 3000); // Wait 3 seconds before responding
-      };
+        }, 3000);
+      }
+    };
 
-      // .jpg is gone, now check for .job
-      if (fs.existsSync(jobFilepath)) {
-        // .job still exists, remove after 2 seconds, then respond
-        setTimeout(() => {
-          try {
-            if (fs.existsSync(jobFilepath)) {
-              fs.unlinkSync(jobFilepath);
-            }
-          } catch (err) {
-            console.error("Error deleting .job file after 2 seconds:", err);
+    // Check every 2 seconds for file processing
+    const checkInterval = setInterval(checkAllFiles, 2000);
+
+    // Timeout after 60 seconds
+    const timeout = setTimeout(() => {
+      if (hasResponded) return;
+      
+      hasResponded = true;
+      clearInterval(checkInterval);
+
+      // Clean up any remaining files
+      createdFiles.forEach(file => {
+        try {
+          if (fs.existsSync(file.imageFilepath)) {
+            fs.unlinkSync(file.imageFilepath);
+            console.log(`Timeout cleanup: removed ${file.imageFilename}`);
           }
-          handleSuccessResponse(); // respond after 3 seconds
-        }, 2000);
-      } else {
-        // .job already deleted, wait 3 sec then respond
-        handleSuccessResponse();
-      }
-    }
-  }, 2000);
+          if (fs.existsSync(file.jobFilepath)) {
+            fs.unlinkSync(file.jobFilepath);
+            console.log(`Timeout cleanup: removed ${file.jobFilename}`);
+          }
+        } catch (error) {
+          console.error(`Error cleaning up files for copy ${file.copyNumber}:`, error);
+        }
+      });
 
-  const timeout = setTimeout(() => {
-    clearInterval(checkInterval);
+      const partialSuccess = processedCount > 0;
+      
+      return res.status(partialSuccess ? 206 : 202).json({ 
+        success: partialSuccess,
+        status: partialSuccess ? 'Partially completed' : 'Timed out',
+        totalCopies: actualCopies,
+        processedCopies: processedCount,
+        failedCopies: actualCopies - processedCount,
+        message: partialSuccess 
+          ? `${processedCount} of ${actualCopies} copies completed before timeout`
+          : 'Timed out waiting for printer response'
+      });
+    }, 60000);
 
-    try {
-      if (fs.existsSync(imageFilepath)) {
-        fs.unlinkSync(imageFilepath);
+  } catch (error) {
+    console.error('Error creating print files:', error);
+    
+    // Clean up any files that were created
+    createdFiles.forEach(file => {
+      try {
+        if (fs.existsSync(file.imageFilepath)) {
+          fs.unlinkSync(file.imageFilepath);
+        }
+        if (fs.existsSync(file.jobFilepath)) {
+          fs.unlinkSync(file.jobFilepath);
+        }
+      } catch (cleanupError) {
+        console.error(`Error cleaning up file ${file.imageFilename}:`, cleanupError);
       }
-      if (fs.existsSync(jobFilepath)) {
-        fs.unlinkSync(jobFilepath);
-      }
-    } catch (error) {
-      console.error('Error cleaning up files on timeout:', error);
-    }
-
-    return res.status(202).json({ 
-      success: false, 
-      message: 'Timed out waiting for printer response.' 
     });
-  }, 60000);
+
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to create print files',
+      details: error.message
+    });
+  }
 });
 
 

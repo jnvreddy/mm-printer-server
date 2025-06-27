@@ -152,7 +152,9 @@ app.post('/api/printer', (req, res) => {
     copies = Math.ceil(copies / 2); 
   }
 
-  const sizeFolder = path.join(__dirname, "Prints");
+  const sizeFolder = path.join("C:","DNP","HotFolderPrint","Prints", `s${size}`);
+
+  //const sizeFolder = path.join(__dirname, "Prints");
   if (!fs.existsSync(sizeFolder)) {
     return res.status(400).json({ success: false, error: `Size folder '${size}' does not exist` });
   }
@@ -171,25 +173,42 @@ app.post('/api/printer', (req, res) => {
     if (!fs.existsSync(imageFilepath)) {
       clearInterval(checkInterval);
       clearTimeout(timeout);
-      
+
+      const handleSuccessResponse = () => {
+        setTimeout(() => {
+          successfulPrintCount++;
+          return res.status(200).json({
+            success: true,
+            status: 'Printed successfully',
+            file: imageFilename,
+            message: 'File processed and removed from queue'
+          });
+        }, 3000); // Wait 3 seconds before responding
+      };
+
+      // .jpg is gone, now check for .job
       if (fs.existsSync(jobFilepath)) {
-        fs.unlinkSync(jobFilepath);
+        // .job still exists, remove after 2 seconds, then respond
+        setTimeout(() => {
+          try {
+            if (fs.existsSync(jobFilepath)) {
+              fs.unlinkSync(jobFilepath);
+            }
+          } catch (err) {
+            console.error("Error deleting .job file after 2 seconds:", err);
+          }
+          handleSuccessResponse(); // respond after 3 seconds
+        }, 2000);
+      } else {
+        // .job already deleted, wait 3 sec then respond
+        handleSuccessResponse();
       }
-      
-      successfulPrintCount++;
-      
-      return res.status(200).json({
-        success: true,
-        status: 'Printed successfully',
-        file: imageFilename,
-        message: 'File processed and removed from queue'
-      });
     }
-  }, 2000); 
+  }, 2000);
 
   const timeout = setTimeout(() => {
     clearInterval(checkInterval);
-    
+
     try {
       if (fs.existsSync(imageFilepath)) {
         fs.unlinkSync(imageFilepath);
@@ -200,13 +219,14 @@ app.post('/api/printer', (req, res) => {
     } catch (error) {
       console.error('Error cleaning up files on timeout:', error);
     }
-    
+
     return res.status(202).json({ 
       success: false, 
       message: 'Timed out waiting for printer response.' 
     });
-  }, 30000);
+  }, 60000);
 });
+
 
 // app.post('/api/printer', (req, res) => {
 //   let copies = parseInt(req.headers['x-copies'] || '1', 10);

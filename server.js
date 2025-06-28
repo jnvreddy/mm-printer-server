@@ -148,7 +148,6 @@ app.post('/api/printer', (req, res) => {
   let copies = parseInt(req.headers['x-copies'] || '1', 10);
   const size = req.headers['x-size'] || '2x6';
 
-  // Apply the halving logic for 2x6 and 6x2 sizes
   let actualCopies = copies;
   if (size === '2x6' || size === '6x2') {
     actualCopies = Math.ceil(copies / 2);
@@ -168,7 +167,6 @@ app.post('/api/printer', (req, res) => {
   const createdFiles = [];
   
   try {
-    // Create separate image and job files for each copy
     for (let i = 1; i <= actualCopies; i++) {
       const baseFilename = `print_DS1HX_${baseTimestamp}_copy${i}`;
       const imageFilename = `${baseFilename}.jpg`;
@@ -177,10 +175,8 @@ app.post('/api/printer', (req, res) => {
       const imageFilepath = path.join(sizeFolder, imageFilename);
       const jobFilepath = path.join(sizeFolder, jobFilename);
 
-      // Write the image file (same image for each copy)
       fs.writeFileSync(imageFilepath, req.body);
       
-      // Write the job file (1 copy per job file since we're creating multiple files)
       fs.writeFileSync(jobFilepath, 'copies=1');
 
       createdFiles.push({
@@ -195,7 +191,6 @@ app.post('/api/printer', (req, res) => {
 
     console.log(`Created ${actualCopies} sets of files for printing`);
 
-    // Track the processing of all files
     let processedCount = 0;
     let hasResponded = false;
 
@@ -209,7 +204,6 @@ app.post('/api/printer', (req, res) => {
           currentProcessedCount++;
           console.log(`File ${file.copyNumber} processed: ${file.imageFilename}`);
           
-          // Clean up job file if it still exists
           if (fs.existsSync(file.jobFilepath)) {
             setTimeout(() => {
               try {
@@ -233,7 +227,6 @@ app.post('/api/printer', (req, res) => {
 
       processedCount = currentProcessedCount;
 
-      // Send response when all files are processed
       if (allProcessed && processedCount === actualCopies && !hasResponded) {
         hasResponded = true;
         clearInterval(checkInterval);
@@ -252,17 +245,14 @@ app.post('/api/printer', (req, res) => {
       }
     };
 
-    // Check every 2 seconds for file processing
     const checkInterval = setInterval(checkAllFiles, 2000);
 
-    // Timeout after 60 seconds
     const timeout = setTimeout(() => {
       if (hasResponded) return;
       
       hasResponded = true;
       clearInterval(checkInterval);
 
-      // Clean up any remaining files
       createdFiles.forEach(file => {
         try {
           if (fs.existsSync(file.imageFilepath)) {
@@ -295,7 +285,6 @@ app.post('/api/printer', (req, res) => {
   } catch (error) {
     console.error('Error creating print files:', error);
     
-    // Clean up any files that were created
     createdFiles.forEach(file => {
       try {
         if (fs.existsSync(file.imageFilepath)) {
@@ -419,7 +408,6 @@ app.use((req, res) => {
   }
 });
 
-// 404 fallback page generation
 const notFoundPath = path.join(__dirname, 'public', '404.html');
 if (!fs.existsSync(notFoundPath)) {
   if (!fs.existsSync(path.join(__dirname, 'public'))) {

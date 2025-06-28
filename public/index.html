@@ -232,14 +232,18 @@
 
         async function loadDashboardData() {
             try {
-                const response = await fetch('/api/dashboard/stats');
+                const response = await fetch('/api/dashboard/stats', {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'bypass-tunnel-reminder': 'true',
+                    }
+                });
                 const data = await response.json();
 
                 if (data.success) {
-                    // Update print count
                     document.getElementById('print-count').textContent = data.stats.successfulPrints;
 
-                    // Update printers
                     renderPrinters(data.stats.printers);
                 } else {
                     throw new Error(data.error || 'Failed to load dashboard data');

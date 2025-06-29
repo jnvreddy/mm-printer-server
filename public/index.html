@@ -239,7 +239,22 @@
                         'bypass-tunnel-reminder': 'true',
                     }
                 });
-                const data = await response.json();
+
+                const text = await response.text(); 
+                console.log('Raw response from /api/dashboard/stats:', text);
+
+                let data;
+                try {
+                    data = JSON.parse(text); 
+                } catch (err) {
+                    console.error('JSON parsing failed:', err);
+                    throw new Error(`Invalid JSON response: ${text}`);
+
+                    document.getElementById('printers-container').innerHTML =
+                        `<pre style="color:red;">DEBUG RAW:\n${text}</pre>`;
+
+                    throw new Error(`Invalid JSON response: ${text}`);
+                }
 
                 if (data.success) {
                     document.getElementById('print-count').textContent = data.stats.successfulPrints;
@@ -281,7 +296,7 @@
         function init() {
             loadDashboardData();
             loadTunnelUrl();
-            setInterval(loadDashboardData, 60000); // Refresh every 60s
+            setInterval(loadDashboardData, 60000);// Refresh every 60s
         }
 
         window.addEventListener('load', init);

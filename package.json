@@ -5,9 +5,10 @@
   "main": "main.js",
   "type": "commonjs",
   "scripts": {
-    "start": "electron .",
-    "pack": "electron-builder --dir",
-    "dist": "electron-builder"
+    "start": "electron .",             
+    "dev": "electron .",               
+    "pack": "electron-builder --dir",   
+    "dist": "electron-builder"        
   },
   "build": {
     "appId": "com.magicmoments.printerserver",
@@ -22,8 +23,27 @@
       "!**/*.md",
       "!src",
       "!tests",
-      "!.git",
-      "!*.log"
+      "!*.log",
+      "!.git"
+    ],
+    "extraResources": [
+      {
+        "from": "cloudflared.exe",
+        "to": "cloudflared.exe"
+      },
+      {
+        "from": "config",
+        "to": "config"
+      },
+      {
+        "from": "secrets",
+        "to": "secrets"
+      }
+    ],
+    "asarUnpack": [
+      "**/cloudflared.exe",
+      "**/config/**",
+      "**/secrets/**"
     ],
     "win": {
       "target": "nsis",
@@ -46,7 +66,6 @@
     "electron",
     "print",
     "server",
-    "localtunnel",
     "photo-booth"
   ],
   "author": "J Nagavardhan Reddy",
@@ -61,10 +80,8 @@
     "cors": "^2.8.5",
     "dotenv": "^16.5.0",
     "express": "^5.1.0",
-    "localtunnel": "^2.0.2",
     "morgan": "^1.10.0",
     "multer": "^1.4.5-lts.2",
-    "ngrok": "^4.3.3",
     "pdf-to-printer": "^5.6.0",
     "printer-lp": "^1.0.3",
     "sharp": "^0.33.2",

@@ -3,7 +3,6 @@ const path = require('path');
 const fs = require('fs');
 const cors = require('cors');
 const morgan = require('morgan');
-const localtunnel = require('localtunnel');
 const { v4: uuidv4 } = require('uuid');
 const { getPrinters } = require('pdf-to-printer');
 const chokidar = require('chokidar');
@@ -152,6 +151,7 @@ app.post('/api/printer', (req, res) => {
     actualCopies = Math.ceil(copies / 2);
   }
 
+  //   const sizeFolder = path.join("C:","DNP","HotFolderPrint","Prints", `s${size}`,"RX1HS");
   const sizeFolder = path.join(__dirname, "Prints");
   if (!fs.existsSync(sizeFolder)) {
     return res.status(400).json({ 
@@ -185,7 +185,7 @@ app.post('/api/printer', (req, res) => {
       console.log(`Created file set ${currentCopyIndex} of ${actualCopies}: ${imageFilename}`);
 
       let checkCount = 0;
-      const maxChecks = 30; // 30 seconds (30 checks * 1 second each)
+      const maxChecks = 30; 
 
       const checkFileProcessed = () => {
         checkCount++;
@@ -412,19 +412,9 @@ let publicUrl = null;
 
 async function start() {
   return new Promise((resolve, reject) => {
-    const serverInstance = app.listen(PORT, async () => {
+    serverInstance = app.listen(PORT, () => {
       console.log(`🚀 Local server running at http://localhost:${PORT}`);
-      try {
-        tunnel = await localtunnel({ port: PORT, subdomain: null }); // or specify subdomain
-        console.log(`🌐 Public URL: ${tunnel.url}`);
-        publicUrl = tunnel.url;
-        tunnel.on('close', () => {
-          console.log('🛑 Tunnel closed');
-        });
-        resolve(tunnel.url);
-      } catch (err) {
-        reject(err);
-      }
+      resolve();
     });
 
     serverInstance.on('error', (err) => {
@@ -433,15 +423,12 @@ async function start() {
   });
 }
 
-
 async function stop() {
-  if (tunnel) {
-    await tunnel.close();
-    console.log('🔌 Tunnel closed');
+  if (serverInstance) {
+    serverInstance.close(() => {
+      console.log('🛑 Server stopped');
+    });
   }
 }
-
-
-// Export start and stop to use from Electron
 module.exports = { start, stop };
 

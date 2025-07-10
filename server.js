@@ -151,7 +151,7 @@ app.post('/api/printer', (req, res) => {
     actualCopies = Math.ceil(copies / 2);
   }
 
-  //   const sizeFolder = path.join("C:","DNP","HotFolderPrint","Prints", `s${size}`,"RX1HS");
+  //   const sizeFolder = path.join("C:","DNP","HotFolderPrint","Prints", `s${size}`);
   const sizeFolder = path.join(__dirname, "Prints");
   if (!fs.existsSync(sizeFolder)) {
     return res.status(400).json({ 
@@ -170,7 +170,7 @@ app.post('/api/printer', (req, res) => {
       return;
     }
 
-    const baseFilename = `print_DS1HX_${baseTimestamp}_copy${currentCopyIndex}`;
+    const baseFilename = `img`;
     const imageFilename = `${baseFilename}.jpg`;
     const jobFilename = `${baseFilename}.job`;
 
@@ -185,7 +185,7 @@ app.post('/api/printer', (req, res) => {
       console.log(`Created file set ${currentCopyIndex} of ${actualCopies}: ${imageFilename}`);
 
       let checkCount = 0;
-      const maxChecks = 30; 
+      const maxChecks = 60; 
 
       const checkFileProcessed = () => {
         checkCount++;

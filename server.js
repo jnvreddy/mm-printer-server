@@ -19,7 +19,6 @@ process.on('unhandledRejection', (reason) => {
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Add print counter
 let successfulPrintCount = 0;
 
 const DNP_PRINTER_CONFIG = {

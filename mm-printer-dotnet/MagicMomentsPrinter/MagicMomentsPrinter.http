@@ -1,6 +1,0 @@
-@MagicMomentsPrinter_HostAddress = http://localhost:5182
-
-GET {{MagicMomentsPrinter_HostAddress}}/weatherforecast/
-Accept: application/json
-
-###

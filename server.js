@@ -4,8 +4,8 @@ const fs = require('fs');
 const cors = require('cors');
 const morgan = require('morgan');
 const { v4: uuidv4 } = require('uuid');
-const { getPrinters } = require('pdf-to-printer');
-const chokidar = require('chokidar');
+const { exec, spawn } = require("child_process");
+const sharp = require('sharp');
 require('dotenv').config();
 
 process.on('uncaughtException', (error) => {
@@ -24,12 +24,109 @@ let successfulPrintCount = 0;
 const DNP_PRINTER_CONFIG = {
   name: 'DNS XH1',
   paperSizes: [
-    { name: '2x6', width: 2, height: 6 },
-    { name: '4x6', width: 4, height: 6 },
-    { name: '6x8', width: 6, height: 8 },
-    { name: '6x9', width: 6, height: 9 }
+    // Standard sizes
+    { name: '5x3.5', width: 5, height: 3.5, actualSize: '(5x3.5)', cutEnabled: false },
+    { name: '5x5', width: 5, height: 5, actualSize: '(5x5)', cutEnabled: false },
+    { name: '5x7', width: 5, height: 7, actualSize: '(5x7)', cutEnabled: false },
+    { name: '6x4', width: 6, height: 4, actualSize: '(6x4)', cutEnabled: false },
+    { name: '6x6', width: 6, height: 6, actualSize: '(6x6)', cutEnabled: false },
+    { name: '6x8', width: 6, height: 8, actualSize: '(6x8)', cutEnabled: false },
+
+    // Special sizes with cutting
+    { name: '2x6', width: 2, height: 6, actualSize: '(6x4) x 2', cutEnabled: true },
+    { name: '3x4', width: 3, height: 4, actualSize: '(6x4) x 2', cutEnabled: true },
+
+    // Passport sizes
+    { name: '3.5x5', width: 3.5, height: 5, actualSize: 'PR (3.5x5)', cutEnabled: false },
+    { name: '4x6', width: 4, height: 6, actualSize: 'PR (4x6)', cutEnabled: false },
+    { name: '2x3', width: 2, height: 3, actualSize: 'PR (4x6) x 2', cutEnabled: true }
   ],
   defaultSize: '2x6'
+};
+
+// Function to get available Windows printers
+const getPrinters = () => {
+  return new Promise((resolve, reject) => {
+    exec("Get-Printer | ConvertTo-Json", { shell: "powershell.exe" }, (err, stdout) => {
+      if (err) {
+        console.error("PowerShell error:", err);
+        reject(err);
+        return;
+      }
+
+      try {
+        const printers = JSON.parse(stdout);
+        const printerList = Array.isArray(printers) ? printers : [printers];
+        resolve(printerList);
+      } catch (parseErr) {
+        console.error("JSON parse failed:", parseErr, stdout);
+        reject(parseErr);
+      }
+    });
+  });
+};
+
+// Function to print file to Windows printer spooler
+const printFile = (filePath, options = {}) => {
+  return new Promise((resolve, reject) => {
+    const { printer, paperSize, copies = 1, cut = false } = options;
+
+    if (!printer) {
+      reject(new Error('Printer name is required'));
+      return;
+    }
+
+    // Find the paper size configuration
+    const sizeConfig = DNP_PRINTER_CONFIG.paperSizes.find(s => s.name === paperSize);
+    if (!sizeConfig) {
+      reject(new Error(`Unsupported paper size: ${paperSize}`));
+      return;
+    }
+
+    const actualPaperSize = sizeConfig.actualSize;
+    const cutEnabled = sizeConfig.cutEnabled;
+
+    console.log(`Printing to ${printer}: ${copies} copies of ${paperSize} (DNP size: ${actualPaperSize}, cut: ${cutEnabled})`);
+
+    // For DNP printers, we need to use a different approach
+    // We'll use the Windows print command with proper paper size specification
+    let printCommand;
+
+    if (cutEnabled) {
+      // For sizes with cutting (like 2x6 -> (6x4) x 2), we need to handle the cutting
+      // Each print job will create multiple strips, so we adjust the number of copies
+      const stripsPerJob = actualPaperSize.includes('x 2') ? 2 : 1;
+      const actualCopies = Math.ceil(copies / stripsPerJob);
+
+      printCommand = `powershell.exe -Command "& {Get-Content '${filePath}' -Raw | Out-Printer -Name '${printer}' -Copies ${actualCopies} -PaperSize '${actualPaperSize}'}"`;
+
+      console.log(`Cut-enabled print: ${copies} requested copies, ${actualCopies} print jobs (${stripsPerJob} strips per job)`);
+    } else {
+      // For regular sizes without cutting
+      printCommand = `powershell.exe -Command "& {Get-Content '${filePath}' -Raw | Out-Printer -Name '${printer}' -Copies ${copies} -PaperSize '${actualPaperSize}'}"`;
+    }
+
+    exec(printCommand, (error, stdout, stderr) => {
+      if (error) {
+        console.error(`Print error:`, error);
+        reject(error);
+        return;
+      }
+
+      if (stderr) {
+        console.warn(`Print warning:`, stderr);
+      }
+
+      console.log(`Successfully sent print job to printer ${printer} with size ${actualPaperSize}`);
+      resolve({
+        success: true,
+        copies: copies,
+        paperSize: actualPaperSize,
+        cutEnabled: cutEnabled,
+        requestedSize: paperSize
+      });
+    });
+  });
 };
 
 const safeGetPrinters = async () => {
@@ -43,7 +140,7 @@ const safeGetPrinters = async () => {
   }
 };
 
-app.use(cors({ origin: '*', methods: ['GET', 'POST'], allowedHeaders: ['Content-Type', 'Authorization', 'X-Copies', 'X-Size','bypass-tunnel-reminder'] }));
+app.use(cors({ origin: '*', methods: ['GET', 'POST'], allowedHeaders: ['Content-Type', 'Authorization', 'X-Copies', 'X-Size', 'bypass-tunnel-reminder'] }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
@@ -82,11 +179,20 @@ const authenticateRequest = (req, res, next) => {
 app.get('/api/dashboard/stats', async (req, res) => {
   try {
     const printers = await safeGetPrinters();
+    // Filter only DNP printers for dashboard
+    const dnpPrinters = printers.filter(p =>
+      p.Name && /RX1|RX1HS|DNP/i.test(p.Name)
+    );
+
     return res.json({
       success: true,
       stats: {
         successfulPrints: successfulPrintCount,
-        printers: printers.map(p => ({ name: p.name, isConnected: true, status: p.status || 'online' }))
+        printers: dnpPrinters.map(p => ({
+          name: p.Name,
+          isConnected: p.PrinterStatus === 'Normal',
+          status: p.PrinterStatus || 'Unknown'
+        }))
       }
     });
   } catch (err) {
@@ -102,177 +208,72 @@ app.get('/api/tunnel', (req, res) => {
   }
 });
 
-app.get('/api/printers', async (req, res) => {
-  try {
-    const printers = await safeGetPrinters();
-    return res.json({
-      success: true,
-      printers: printers.map(p => ({ id: p.name, name: p.name, isConnected: true }))
-    });
-  } catch (err) {
-    return res.status(500).json({ success: false, error: 'Internal server error', message: err.message });
-  }
-});
 
 //app.use('/api/printer', authenticateRequest);
 
-const safeCleanupFiles = (files) => {
-  if (!Array.isArray(files)) files = [files];
-  files.forEach(file => {
-    try {
-      if (file && fs.existsSync(file)) fs.unlinkSync(file);
-    } catch (e) {
-      console.error(`Error removing file ${file}:`, e);
-    }
-  });
-};
 
-app.get('/api/printer', async (req, res) => {
+
+
+app.get("/api/printer", async (req, res) => {
   try {
-    const printers = await safeGetPrinters();
-    return res.json({
+    const printers = await getPrinters();
+
+    // Filter only DNP printers (names containing RX1, RX1HS, or DNP)
+    const dnpPrinters = printers.filter(p =>
+      p.Name && /RX1|RX1HS|DNP/i.test(p.Name)
+    );
+
+    if (dnpPrinters.length === 0) {
+      return res.json({
+        success: true,
+        printers: [],
+        message: "No DNP printers found",
+        allPrinters: printers.map(p => ({ name: p.Name, status: p.PrinterStatus }))
+      });
+    }
+
+    res.json({
       success: true,
-      printers: printers.map(p => ({ id: p.name, name: p.name, isConnected: true }))
+      printers: dnpPrinters.map(p => ({
+        name: p.Name,
+        status: p.PrinterStatus,
+        driverName: p.DriverName,
+        isConnected: p.PrinterStatus === 'Normal'
+      }))
     });
   } catch (err) {
-    return res.status(500).json({ success: false, error: 'Internal server error', message: err.message });
+    console.error("Failed to fetch printers:", err);
+    res.status(500).json({ success: false, error: "Failed to fetch printers", details: err.message });
   }
 });
 
-app.use('/api/printer', express.raw({ type: 'image/jpeg', limit: '10mb' }));
+// Get available paper sizes
+app.get("/api/printer/sizes", (req, res) => {
+  try {
+    const sizes = DNP_PRINTER_CONFIG.paperSizes.map(size => ({
+      name: size.name,
+      width: size.width,
+      height: size.height,
+      dnpSize: size.actualSize,
+      cutEnabled: size.cutEnabled,
+      description: size.cutEnabled ?
+        `${size.name} prints on ${size.actualSize} with cutting enabled` :
+        `${size.name} prints on ${size.actualSize}`
+    }));
 
-app.post('/api/printer', (req, res) => {
-  let copies = parseInt(req.headers['x-copies'] || '1', 10);
-  const size = req.headers['x-size'] || '2x6';
-
-  let actualCopies = copies;
-  if (size === '2x6' || size === '6x2') {
-    actualCopies = Math.ceil(copies / 2);
-  }
-
-  //   const sizeFolder = path.join("C:","DNP","HotFolderPrint","Prints", `s${size}`);
-  const sizeFolder = path.join(__dirname, "Prints");
-  if (!fs.existsSync(sizeFolder)) {
-    return res.status(400).json({ 
-      success: false, 
-      error: `Size folder '${size}' does not exist` 
+    res.json({
+      success: true,
+      sizes: sizes,
+      defaultSize: DNP_PRINTER_CONFIG.defaultSize
     });
+  } catch (err) {
+    console.error("Failed to get paper sizes:", err);
+    res.status(500).json({ success: false, error: "Failed to get paper sizes", details: err.message });
   }
-
-  const baseTimestamp = Date.now();
-  let processedCount = 0;
-  let hasResponded = false;
-  let currentCopyIndex = 1;
-
-  const createNextFile = () => {
-    if (currentCopyIndex > actualCopies || hasResponded) {
-      return;
-    }
-
-    const baseFilename = `img`;
-    const imageFilename = `${baseFilename}.jpg`;
-
-    const imageFilepath = path.join(sizeFolder, imageFilename);
-
-    try {
-      // Create image file
-      fs.writeFileSync(imageFilepath, req.body);
-
-      console.log(`Created file ${currentCopyIndex} of ${actualCopies}: ${imageFilename}`);
-
-      let checkCount = 0;
-      const maxChecks = 60; 
-
-      const checkFileProcessed = () => {
-        checkCount++;
-
-        // Check if image file has been processed (deleted by printer)
-        if (!fs.existsSync(imageFilepath)) {
-          console.log(`File ${currentCopyIndex} processed: ${imageFilename}`);
-          processedCount++;
-
-          // Check if this is the last copy
-          if (currentCopyIndex === actualCopies) {
-            // This is the last copy, send response
-            if (!hasResponded) {
-              hasResponded = true;
-              successfulPrintCount += actualCopies;
-              
-              return res.status(200).json({
-                success: true,
-                status: 'All copies printed successfully',
-                totalCopies: actualCopies,
-                processedCopies: processedCount,
-                message: `All ${actualCopies} copies processed and removed from queue`
-              });
-            }
-          } else {
-            // Not the last copy, wait 1 second then create next file
-            setTimeout(() => {
-              currentCopyIndex++;
-              createNextFile();
-            }, 1000);
-          }
-
-          return;
-        }
-
-        // Check if we've exceeded the timeout (30 seconds)
-        if (checkCount >= maxChecks) {
-          console.log(`Timeout for file ${currentCopyIndex}: ${imageFilename}`);
-          
-          // Clean up current file
-          try {
-            if (fs.existsSync(imageFilepath)) {
-              fs.unlinkSync(imageFilepath);
-              console.log(`Timeout cleanup: removed ${imageFilename}`);
-            }
-          } catch (error) {
-            console.error(`Error cleaning up files for copy ${currentCopyIndex}:`, error);
-          }
-
-          // Send failure response
-          if (!hasResponded) {
-            hasResponded = true;
-            const partialSuccess = processedCount > 0;
-            
-            return res.status(partialSuccess ? 206 : 408).json({ 
-              success: false,
-              status: 'Print job failed',
-              totalCopies: actualCopies,
-              processedCopies: processedCount,
-              failedCopies: actualCopies - processedCount,
-              message: partialSuccess 
-                ? `${processedCount} of ${actualCopies} copies completed before timeout on copy ${currentCopyIndex}`
-                : `Print job timed out on copy ${currentCopyIndex} after 30 seconds`
-            });
-          }
-          return;
-        }
-
-        // Continue checking every 1 second
-        setTimeout(checkFileProcessed, 1000);
-      };
-
-      // Start checking this file
-      checkFileProcessed();
-
-    } catch (error) {
-      console.error(`Error creating print files for copy ${currentCopyIndex}:`, error);
-      
-      if (!hasResponded) {
-        hasResponded = true;
-        return res.status(500).json({
-          success: false,
-          error: 'Failed to create print files',
-          details: error.message
-        });
-      }
-    }
-  };
-
-  createNextFile();
 });
+
+
+
 
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));

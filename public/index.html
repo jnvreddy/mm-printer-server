@@ -179,6 +179,41 @@
             font-size: 0.9rem;
             margin-top: 20px;
         }
+
+        .url-container {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .url-item {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 15px;
+            border-left: 4px solid #667eea;
+        }
+
+        .url-label {
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 5px;
+        }
+
+        .url-link {
+            color: #667eea;
+            text-decoration: none;
+            word-break: break-all;
+            font-family: monospace;
+            background: #e9ecef;
+            padding: 5px 8px;
+            border-radius: 4px;
+            display: inline-block;
+        }
+
+        .url-link:hover {
+            background: #dee2e6;
+            text-decoration: underline;
+        }
     </style>
 </head>
 
@@ -188,8 +223,14 @@
             <h1>🖨️ Print Server Dashboard</h1>
         </div>
 
-        <div id="tunnel-url" class="section" style="font-size: 1.1rem; margin-top: 10px; color: #000;">
-            Loading tunnel URL...    </div>
+        <div class="section">
+            <div class="section-header">
+                <h3>🌐 Server URLs</h3>
+            </div>
+            <div id="urls-container">
+                <div class="loading">Loading server URLs...</div>
+            </div>
+        </div>
 
         <div class="section">
             <div class="section-header">
@@ -211,22 +252,59 @@
     </div>
 
     <script>
-    async function loadTunnelUrl() {
-        try {
-            const res = await fetch('/api/tunnel');
-            const data = await res.json();
+        async function loadServerUrls() {
+            try {
+                const urlsContainer = document.getElementById('urls-container');
 
-            const tunnelEl = document.getElementById('tunnel-url');
-            if (data.success && data.url) {
-                tunnelEl.innerHTML = `🌐 <strong>Public URL:</strong> <a href="${data.url}" target="_blank" style="color:#000;">${data.url}</a>`;
-            } else {
-                tunnelEl.textContent = 'Tunnel URL not available';
+                // Get localhost URL
+                const localhostUrl = `${window.location.protocol}//${window.location.host}`;
+
+                // Get tunnel URL
+                let tunnelUrl = null;
+                try {
+                    const res = await fetch('/api/tunnel');
+                    const data = await res.json();
+                    if (data.success && data.url) {
+                        tunnelUrl = data.url;
+                    }
+                } catch (err) {
+                    console.log('Tunnel URL not available:', err);
+                }
+
+                // Display URLs
+                let urlsHTML = `
+                <div class="url-container">
+                    <div class="url-item">
+                        <div class="url-label">🏠 Local Server</div>
+                        <a href="${localhostUrl}" target="_blank" class="url-link">${localhostUrl}</a>
+                    </div>
+            `;
+
+                if (tunnelUrl) {
+                    urlsHTML += `
+                    <div class="url-item">
+                        <div class="url-label">🌐 Public Tunnel (Cloudflare)</div>
+                        <a href="${tunnelUrl}" target="_blank" class="url-link">${tunnelUrl}</a>
+                    </div>
+                `;
+                } else {
+                    urlsHTML += `
+                    <div class="url-item">
+                        <div class="url-label">🌐 Public Tunnel</div>
+                        <span style="color: #666; font-style: italic;">Tunnel not available</span>
+                    </div>
+                `;
+                }
+
+                urlsHTML += '</div>';
+                urlsContainer.innerHTML = urlsHTML;
+
+            } catch (err) {
+                document.getElementById('urls-container').innerHTML =
+                    '<div class="loading">Failed to load server URLs</div>';
+                console.error(err);
             }
-        } catch (err) {
-            document.getElementById('tunnel-url').textContent = 'Failed to load tunnel URL';
-            console.error(err);
         }
-    }
 
 
         async function loadDashboardData() {
@@ -239,12 +317,12 @@
                     }
                 });
 
-                const text = await response.text(); 
+                const text = await response.text();
                 console.log('Raw response from /api/dashboard/stats:', text);
 
                 let data;
                 try {
-                    data = JSON.parse(text); 
+                    data = JSON.parse(text);
                 } catch (err) {
                     console.error('JSON parsing failed:', err);
                     throw new Error(`Invalid JSON response: ${text}`);
@@ -277,24 +355,31 @@
                 return;
             }
 
-            const printersHTML = printers.map(printer => `
-        <div class="printer-card ${printer.isConnected ? 'online' : 'offline'}">
-          <div class="printer-name">
-            <span class="status-indicator ${printer.isConnected ? 'online' : 'offline'}"></span>
-            ${printer.name}
-          </div>
-          <div class="printer-status">
-            Status: ${printer.isConnected ? 'Online' : 'Offline'}
-          </div>
-        </div>
-      `).join('');
+            const printersHTML = printers.map(printer => {
+                // Handle both old and new printer object formats
+                const printerName = printer.name || printer.Name || 'Unknown Printer';
+                const isConnected = printer.isConnected !== undefined ? printer.isConnected : (printer.PrinterStatus === 'Normal');
+                const status = printer.status || printer.PrinterStatus || (isConnected ? 'Online' : 'Offline');
+
+                return `
+                    <div class="printer-card ${isConnected ? '' : 'offline'}">
+                        <div class="printer-name">
+                            <span class="status-indicator ${isConnected ? '' : 'offline'}"></span>
+                            ${printerName}
+                        </div>
+                        <div class="printer-status">
+                            Status: ${status}
+                        </div>
+                    </div>
+                `;
+            }).join('');
 
             container.innerHTML = `<div class="printers-grid">${printersHTML}</div>`;
         }
 
         function init() {
             loadDashboardData();
-            loadTunnelUrl();
+            loadServerUrls();
             setInterval(loadDashboardData, 60000);// Refresh every 60 seconds
         }
 

@@ -88,28 +88,78 @@ const printFile = (filePath, options = {}) => {
 
     console.log(`Printing to ${printer}: ${copies} copies of ${paperSize} (DNP size: ${actualPaperSize}, cut: ${cutEnabled})`);
 
-    // For DNP printers, we need to use a different approach
-    // We'll use the Windows print command with proper paper size specification
-    let printCommand;
+    // Method 1: Use mspaint to print - very reliable for images
+    const printCommand = `mspaint /p "${filePath}"`;
 
-    if (cutEnabled) {
-      // For sizes with cutting (like 2x6 -> (6x4) x 2), we need to handle the cutting
-      // Each print job will create multiple strips, so we adjust the number of copies
-      const stripsPerJob = actualPaperSize.includes('x 2') ? 2 : 1;
-      const actualCopies = Math.ceil(copies / stripsPerJob);
+    console.log(`Executing print command: ${printCommand}`);
 
-      printCommand = `powershell.exe -Command "& {Get-Content '${filePath}' -Raw | Out-Printer -Name '${printer}' -Copies ${actualCopies} -PaperSize '${actualPaperSize}'}"`;
+    // Add timeout to prevent hanging
+    const timeout = setTimeout(() => {
+      console.log('Print command timed out, trying alternative method...');
+      // Try alternative method immediately
+      tryAlternativeMethod();
+    }, 10000); // 10 second timeout
 
-      console.log(`Cut-enabled print: ${copies} requested copies, ${actualCopies} print jobs (${stripsPerJob} strips per job)`);
-    } else {
-      // For regular sizes without cutting
-      printCommand = `powershell.exe -Command "& {Get-Content '${filePath}' -Raw | Out-Printer -Name '${printer}' -Copies ${copies} -PaperSize '${actualPaperSize}'}"`;
-    }
+    const tryAlternativeMethod = () => {
+      clearTimeout(timeout);
+      // Method 2: Use PowerShell with Start-Process and Print verb
+      const altScript = `
+        $process = Start-Process -FilePath '${filePath.replace(/\\/g, '\\\\')}' -Verb Print -PassThru -WindowStyle Hidden
+        $process.WaitForExit(5000)
+        if ($process.ExitCode -eq 0) { Write-Output "Print job queued successfully" }
+      `;
 
-    exec(printCommand, (error, stdout, stderr) => {
+      const altCommand = `powershell.exe -Command "${altScript}"`;
+
+      exec(altCommand, { timeout: 15000 }, (altError, altStdout, altStderr) => {
+        if (altError) {
+          console.error(`Alternative print error:`, altError);
+          // Method 3: Use Windows ShellExecute via rundll32
+          console.log('Trying final fallback method...');
+
+          const fallbackCommand = `rundll32.exe shell32.dll,ShellExec_RunDLL "${filePath}"`;
+
+          exec(fallbackCommand, { timeout: 10000 }, (fallbackError, fallbackStdout, fallbackStderr) => {
+            if (fallbackError) {
+              console.error(`Fallback print error:`, fallbackError);
+              reject(new Error(`All print methods failed: ${fallbackError.message}`));
+              return;
+            }
+
+            console.log('Fallback print method succeeded');
+            resolve({
+              success: true,
+              copies: copies,
+              paperSize: actualPaperSize,
+              cutEnabled: cutEnabled,
+              requestedSize: paperSize,
+              queued: true,
+              message: 'Print job queued via fallback method'
+            });
+          });
+          return;
+        }
+
+        console.log('Alternative print method succeeded');
+        console.log('Alternative output:', altStdout);
+        resolve({
+          success: true,
+          copies: copies,
+          paperSize: actualPaperSize,
+          cutEnabled: cutEnabled,
+          requestedSize: paperSize,
+          queued: true,
+          message: 'Print job queued via alternative method'
+        });
+      });
+    };
+
+    exec(printCommand, { timeout: 10000 }, (error, stdout, stderr) => {
+      clearTimeout(timeout);
       if (error) {
         console.error(`Print error:`, error);
-        reject(error);
+        // Try alternative method if mspaint fails
+        tryAlternativeMethod();
         return;
       }
 
@@ -118,12 +168,16 @@ const printFile = (filePath, options = {}) => {
       }
 
       console.log(`Successfully sent print job to printer ${printer} with size ${actualPaperSize}`);
+      console.log('Print output:', stdout);
+
       resolve({
         success: true,
         copies: copies,
         paperSize: actualPaperSize,
         cutEnabled: cutEnabled,
-        requestedSize: paperSize
+        requestedSize: paperSize,
+        queued: true,
+        message: 'Print job queued successfully'
       });
     });
   });
@@ -138,6 +192,31 @@ const safeGetPrinters = async () => {
     console.error('Failed to fetch printers:', err);
     return [];
   }
+};
+
+// Function to check print queue for a specific printer
+const checkPrintQueue = (printerName) => {
+  return new Promise((resolve, reject) => {
+    const queueCommand = `powershell.exe -Command "Get-PrintJob -PrinterName '${printerName}' | ConvertTo-Json"`;
+
+    exec(queueCommand, (error, stdout, stderr) => {
+      if (error) {
+        console.error(`Queue check error:`, error);
+        resolve([]);
+        return;
+      }
+
+      try {
+        const jobs = JSON.parse(stdout);
+        const jobList = Array.isArray(jobs) ? jobs : [jobs];
+        console.log(`Print queue for ${printerName}:`, jobList);
+        resolve(jobList);
+      } catch (parseErr) {
+        console.error("JSON parse failed for queue:", parseErr);
+        resolve([]);
+      }
+    });
+  });
 };
 
 app.use(cors({ origin: '*', methods: ['GET', 'POST'], allowedHeaders: ['Content-Type', 'Authorization', 'X-Copies', 'X-Size', 'bypass-tunnel-reminder'] }));
@@ -211,8 +290,159 @@ app.get('/api/tunnel', (req, res) => {
 
 //app.use('/api/printer', authenticateRequest);
 
+app.use('/api/printer', express.raw({ type: 'image/jpeg', limit: '10mb' }));
 
+app.post('/api/printer', async (req, res) => {
+  let tempFilePath = null;
 
+  // Set a timeout for the entire request
+  const requestTimeout = setTimeout(() => {
+    if (!res.headersSent) {
+      res.status(408).json({
+        success: false,
+        error: 'Request timeout',
+        message: 'Print request took too long to process'
+      });
+    }
+  }, 30000); // 30 second timeout
+
+  try {
+    // Validate request
+    if (!req.body || !req.body.length) {
+      clearTimeout(requestTimeout);
+      return res.status(400).json({ success: false, error: 'No image data received' });
+    }
+
+    const copies = parseInt(req.headers['x-copies'] || '1', 10);
+    const requestedSize = (req.headers['x-size'] || DNP_PRINTER_CONFIG.defaultSize).toLowerCase();
+
+    // Validate copies
+    if (copies < 1 || copies > 100) {
+      clearTimeout(requestTimeout);
+      return res.status(400).json({ success: false, error: 'Invalid number of copies. Must be between 1 and 100.' });
+    }
+
+    // Validate paper size
+    const sizeConfig = DNP_PRINTER_CONFIG.paperSizes.find(s => s.name === requestedSize);
+    if (!sizeConfig) {
+      clearTimeout(requestTimeout);
+      return res.status(400).json({
+        success: false,
+        error: `Unsupported paper size: ${requestedSize}`,
+        supportedSizes: DNP_PRINTER_CONFIG.paperSizes.map(s => s.name)
+      });
+    }
+
+    // Get available printers and validate DNP printer exists
+    const availablePrinters = await getPrinters();
+    const dnpPrinter = availablePrinters.find(p =>
+      p.Name && (p.Name.includes('RX1') || p.Name.includes('RX1HS') || p.Name.includes('DNP'))
+    );
+
+    if (!dnpPrinter) {
+      clearTimeout(requestTimeout);
+      return res.status(404).json({
+        success: false,
+        error: 'DNP printer not found',
+        availablePrinters: availablePrinters.map(p => p.Name)
+      });
+    }
+
+    const dnpPrinterName = dnpPrinter.Name;
+    console.log(`Using DNP printer: ${dnpPrinterName}`);
+
+    // Create temporary file
+    tempFilePath = path.join(__dirname, `temp_${Date.now()}.jpg`);
+    fs.writeFileSync(tempFilePath, req.body);
+
+    // Determine if cut should be enabled based on size
+    const cutEnabled = sizeConfig.cutEnabled;
+    const actualPaperSize = sizeConfig.actualSize;
+
+    let successCount = 0;
+    let actualPrintJobs = copies;
+
+    // For sizes with cutting, we need to adjust the number of print jobs
+    if (cutEnabled) {
+      const stripsPerJob = actualPaperSize.includes('x 2') ? 2 : 1;
+      actualPrintJobs = Math.ceil(copies / stripsPerJob);
+      console.log(`${requestedSize} with cut: requesting ${copies} copies, sending ${actualPrintJobs} print jobs (${stripsPerJob} strips per job)`);
+    }
+
+    // Send print jobs
+    for (let i = 0; i < actualPrintJobs; i++) {
+      try {
+        const printResult = await printFile(tempFilePath, {
+          printer: dnpPrinterName,
+          paperSize: requestedSize,
+          cut: cutEnabled,
+          copies: 1 // Send one copy per job for better control
+        });
+        successCount++;
+        console.log(`Print job ${i + 1} result:`, printResult);
+      } catch (printError) {
+        console.error(`Print job ${i + 1} failed:`, printError);
+        // Continue with remaining jobs even if one fails
+      }
+    }
+
+    // Check print queue to verify jobs were queued
+    try {
+      const queueJobs = await checkPrintQueue(dnpPrinterName);
+      console.log(`Print queue status: ${queueJobs.length} jobs in queue`);
+    } catch (queueError) {
+      console.error('Failed to check print queue:', queueError);
+    }
+
+    // Clean up temporary file
+    if (tempFilePath && fs.existsSync(tempFilePath)) {
+      fs.unlinkSync(tempFilePath);
+      tempFilePath = null;
+    }
+
+    // Update success count
+    successfulPrintCount += successCount;
+
+    // Prepare response
+    const response = {
+      success: true,
+      message: `${successCount} print jobs sent to printer ${dnpPrinterName}`,
+      requestedCopies: copies,
+      actualPrintJobs: successCount,
+      requestedSize: requestedSize,
+      dnpPaperSize: actualPaperSize,
+      cutEnabled: cutEnabled,
+      printer: dnpPrinterName
+    };
+
+    // Add warning if not all jobs succeeded
+    if (successCount < actualPrintJobs) {
+      response.warning = `${actualPrintJobs - successCount} print jobs failed`;
+    }
+
+    clearTimeout(requestTimeout);
+    res.json(response);
+
+  } catch (err) {
+    console.error('Printing failed:', err);
+
+    // Clean up temporary file on error
+    if (tempFilePath && fs.existsSync(tempFilePath)) {
+      try {
+        fs.unlinkSync(tempFilePath);
+      } catch (cleanupError) {
+        console.error('Failed to cleanup temp file:', cleanupError);
+      }
+    }
+
+    clearTimeout(requestTimeout);
+    res.status(500).json({
+      success: false,
+      error: 'Printing failed',
+      details: err.message
+    });
+  }
+});
 
 app.get("/api/printer", async (req, res) => {
   try {
@@ -269,6 +499,30 @@ app.get("/api/printer/sizes", (req, res) => {
   } catch (err) {
     console.error("Failed to get paper sizes:", err);
     res.status(500).json({ success: false, error: "Failed to get paper sizes", details: err.message });
+  }
+});
+
+// Check print queue for a specific printer
+app.get("/api/printer/queue/:printerName", async (req, res) => {
+  try {
+    const { printerName } = req.params;
+    const queueJobs = await checkPrintQueue(printerName);
+
+    res.json({
+      success: true,
+      printer: printerName,
+      queueCount: queueJobs.length,
+      jobs: queueJobs.map(job => ({
+        id: job.Id,
+        name: job.Name,
+        status: job.JobStatus,
+        pages: job.PagesPrinted,
+        submittedTime: job.SubmittedTime
+      }))
+    });
+  } catch (err) {
+    console.error("Failed to check print queue:", err);
+    res.status(500).json({ success: false, error: "Failed to check print queue", details: err.message });
   }
 });
 

@@ -397,9 +397,16 @@ app.post('/api/printer', async (req, res) => {
     console.log(`Printing ${requestedSize} image as ${actualPaperSize} on Windows printer spooler`);
 
     let successCount = 0;
+    let actualPrintJobs = copies;
+
+    // For 2x6 size, halve the number of print jobs since each job produces 2 copies
+    if (requestedSize === '2x6') {
+      actualPrintJobs = copies / 2;
+      console.log(`2x6 size: requesting ${copies} copies, sending ${actualPrintJobs} print jobs (2 copies per job)`);
+    }
 
     // Send print jobs - just send the original image with the correct paper size
-    for (let i = 0; i < copies; i++) {
+    for (let i = 0; i < actualPrintJobs; i++) {
       try {
         const printResult = await printFile(tempFilePath, {
           printer: dnpPrinterName,
@@ -445,8 +452,8 @@ app.post('/api/printer', async (req, res) => {
     };
 
     // Add warning if not all jobs succeeded
-    if (successCount < copies) {
-      response.warning = `${copies - successCount} print jobs failed`;
+    if (successCount < actualPrintJobs) {
+      response.warning = `${actualPrintJobs - successCount} print jobs failed`;
     }
 
     clearTimeout(requestTimeout);

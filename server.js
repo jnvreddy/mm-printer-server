@@ -66,210 +66,6 @@ const getPrinters = () => {
   });
 };
 
-// Function to process image for DNP printer compatibility
-const processImageForDNP = async (originalImagePath, sizeName, sizeConfig) => {
-  return new Promise(async (resolve, reject) => {
-    try {
-      const { width, height, actualSize } = sizeConfig;
-
-      // Read the original image
-      const originalImage = sharp(originalImagePath);
-      const metadata = await originalImage.metadata();
-
-      console.log(`Processing image for DNP: ${metadata.width}x${metadata.height} -> ${sizeName} (${actualSize})`);
-
-      let processedImage;
-
-      if (sizeName === '2x6') {
-        // For 2x6 images, create a composite with two copies side by side
-        // Each copy should be 600x1800 pixels, minimal cut space
-        const singleWidth = 600;
-        const singleHeight = 1800;
-        const cutSpace = 20; // Minimal cut space between the two copies
-        const totalWidth = singleWidth * 2 + cutSpace;
-
-        console.log(`Creating 2x6 composite: ${totalWidth}x${singleHeight} (2 copies of ${singleWidth}x${singleHeight} with ${cutSpace}px cut space)`);
-
-        // First, resize the original image to fit one copy
-        const resizedImage = await originalImage
-          .resize(singleWidth, singleHeight, {
-            fit: 'cover',
-            position: 'center'
-          })
-          .removeAlpha()
-          .jpeg({
-            quality: 100,
-            progressive: false,
-            mozjpeg: false,
-            force: true
-          })
-          .toBuffer();
-
-        // Create composite image with two copies side by side
-        processedImage = await sharp({
-          create: {
-            width: totalWidth,
-            height: singleHeight,
-            channels: 3,
-            background: { r: 255, g: 255, b: 255 } // White background
-          }
-        })
-          .composite([
-            {
-              input: resizedImage,
-              left: 0,
-              top: 0
-            },
-            {
-              input: resizedImage,
-              left: singleWidth + cutSpace,
-              top: 0
-            }
-          ])
-          .jpeg({
-            quality: 100,
-            progressive: false,
-            mozjpeg: false,
-            force: true
-          })
-          .toBuffer();
-
-      } else if (sizeName === '3x4') {
-        // For 3x4 images, create a composite with two copies side by side
-        const singleWidth = 900;
-        const singleHeight = 1200;
-        const cutSpace = 30; // Minimal cut space between the two copies
-        const totalWidth = singleWidth * 2 + cutSpace;
-
-        console.log(`Creating 3x4 composite: ${totalWidth}x${singleHeight} (2 copies of ${singleWidth}x${singleHeight} with ${cutSpace}px cut space)`);
-
-        // First, resize the original image to fit one copy
-        const resizedImage = await originalImage
-          .resize(singleWidth, singleHeight, {
-            fit: 'cover',
-            position: 'center'
-          })
-          .removeAlpha()
-          .jpeg({
-            quality: 100,
-            progressive: false,
-            mozjpeg: false,
-            force: true
-          })
-          .toBuffer();
-
-        // Create composite image with two copies side by side
-        processedImage = await sharp({
-          create: {
-            width: totalWidth,
-            height: singleHeight,
-            channels: 3,
-            background: { r: 255, g: 255, b: 255 } // White background
-          }
-        })
-          .composite([
-            {
-              input: resizedImage,
-              left: 0,
-              top: 0
-            },
-            {
-              input: resizedImage,
-              left: singleWidth + cutSpace,
-              top: 0
-            }
-          ])
-          .jpeg({
-            quality: 100,
-            progressive: false,
-            mozjpeg: false,
-            force: true
-          })
-          .toBuffer();
-
-      } else if (sizeName === '2x3') {
-        // For 2x3 passport images, create a composite with two copies side by side
-        const singleWidth = 600;
-        const singleHeight = 900;
-        const cutSpace = 20; // Minimal cut space between the two copies
-        const totalWidth = singleWidth * 2 + cutSpace;
-
-        console.log(`Creating 2x3 composite: ${totalWidth}x${singleHeight} (2 copies of ${singleWidth}x${singleHeight} with ${cutSpace}px cut space)`);
-
-        // First, resize the original image to fit one copy
-        const resizedImage = await originalImage
-          .resize(singleWidth, singleHeight, {
-            fit: 'cover',
-            position: 'center'
-          })
-          .removeAlpha()
-          .jpeg({
-            quality: 100,
-            progressive: false,
-            mozjpeg: false,
-            force: true
-          })
-          .toBuffer();
-
-        // Create composite image with two copies side by side
-        processedImage = await sharp({
-          create: {
-            width: totalWidth,
-            height: singleHeight,
-            channels: 3,
-            background: { r: 255, g: 255, b: 255 } // White background
-          }
-        })
-          .composite([
-            {
-              input: resizedImage,
-              left: 0,
-              top: 0
-            },
-            {
-              input: resizedImage,
-              left: singleWidth + cutSpace,
-              top: 0
-            }
-          ])
-          .jpeg({
-            quality: 100,
-            progressive: false,
-            mozjpeg: false,
-            force: true
-          })
-          .toBuffer();
-
-      } else {
-        // For other sizes, just optimize the image
-        console.log(`Optimizing image for DNP printer`);
-        processedImage = await originalImage
-          .removeAlpha()
-          .jpeg({
-            quality: 100,
-            progressive: false,
-            mozjpeg: false,
-            force: true
-          })
-          .toBuffer();
-      }
-
-      // Save the processed image
-      const processedPath = path.join(__dirname, `processed_${Date.now()}.jpg`);
-      fs.writeFileSync(processedPath, processedImage);
-
-      // Verify the processed image
-      const processedMetadata = await sharp(processedPath).metadata();
-      console.log(`Processed image saved: ${processedPath}, dimensions: ${processedMetadata.width}x${processedMetadata.height}`);
-
-      resolve(processedPath);
-
-    } catch (error) {
-      console.error('Error processing image for DNP:', error);
-      reject(error);
-    }
-  });
-};
 
 // Function to print file to Windows printer spooler
 const printFile = (filePath, options = {}) => {
@@ -560,6 +356,28 @@ app.post('/api/printer', async (req, res) => {
     tempFilePath = path.join(__dirname, `temp_${Date.now()}.jpg`);
     fs.writeFileSync(tempFilePath, req.body);
 
+    // Save image to Prints folder
+    try {
+      const printsDir = path.join(__dirname, 'Prints');
+
+      // Ensure Prints directory exists
+      if (!fs.existsSync(printsDir)) {
+        fs.mkdirSync(printsDir, { recursive: true });
+        console.log(`Created Prints directory: ${printsDir}`);
+      }
+
+      // Generate unique filename with timestamp
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const savedImagePath = path.join(printsDir, `print-${timestamp}.jpg`);
+
+      // Save the original image to Prints folder
+      fs.writeFileSync(savedImagePath, req.body);
+      console.log(`Saved image to Prints folder: ${savedImagePath}`);
+    } catch (saveError) {
+      console.error('Failed to save image to Prints folder:', saveError);
+      // Continue with printing even if saving fails
+    }
+
     // Debug: Check the image file
     try {
       const stats = fs.statSync(tempFilePath);
@@ -572,41 +390,22 @@ app.post('/api/printer', async (req, res) => {
       console.error('Error reading image file:', imageError);
     }
 
-    // Determine if cut should be enabled based on size
-    const cutEnabled = sizeConfig.cutEnabled;
+    // Get the actual paper size for Windows printer spooler
     const actualPaperSize = sizeConfig.actualSize;
+    const cutEnabled = sizeConfig.cutEnabled;
 
-    // Process the image for DNP printer compatibility
-    let finalImagePath = tempFilePath;
-    if (cutEnabled) {
-      try {
-        finalImagePath = await processImageForDNP(tempFilePath, requestedSize, sizeConfig);
-        console.log(`Processed image for DNP printer: ${finalImagePath}`);
-      } catch (processError) {
-        console.error('Failed to process image for DNP:', processError);
-        // Fall back to original image
-        finalImagePath = tempFilePath;
-      }
-    }
+    console.log(`Printing ${requestedSize} image as ${actualPaperSize} on Windows printer spooler`);
 
     let successCount = 0;
-    let actualPrintJobs = copies;
 
-    // For sizes with cutting, we need to adjust the number of print jobs
-    if (cutEnabled) {
-      const stripsPerJob = actualPaperSize.includes('x 2') ? 2 : 1;
-      actualPrintJobs = Math.ceil(copies / stripsPerJob);
-      console.log(`${requestedSize} with cut: requesting ${copies} copies, sending ${actualPrintJobs} print jobs (${stripsPerJob} strips per job)`);
-    }
-
-    // Send print jobs
-    for (let i = 0; i < actualPrintJobs; i++) {
+    // Send print jobs - just send the original image with the correct paper size
+    for (let i = 0; i < copies; i++) {
       try {
-        const printResult = await printFile(finalImagePath, {
+        const printResult = await printFile(tempFilePath, {
           printer: dnpPrinterName,
           paperSize: requestedSize,
           cut: cutEnabled,
-          copies: 1 // Send one copy per job for better control
+          copies: 1
         });
         successCount++;
         console.log(`Print job ${i + 1} result:`, printResult);
@@ -629,9 +428,6 @@ app.post('/api/printer', async (req, res) => {
       fs.unlinkSync(tempFilePath);
       tempFilePath = null;
     }
-    if (finalImagePath && finalImagePath !== tempFilePath && fs.existsSync(finalImagePath)) {
-      fs.unlinkSync(finalImagePath);
-    }
 
     // Update success count
     successfulPrintCount += successCount;
@@ -643,14 +439,14 @@ app.post('/api/printer', async (req, res) => {
       requestedCopies: copies,
       actualPrintJobs: successCount,
       requestedSize: requestedSize,
-      dnpPaperSize: actualPaperSize,
+      windowsPaperSize: actualPaperSize,
       cutEnabled: cutEnabled,
       printer: dnpPrinterName
     };
 
     // Add warning if not all jobs succeeded
-    if (successCount < actualPrintJobs) {
-      response.warning = `${actualPrintJobs - successCount} print jobs failed`;
+    if (successCount < copies) {
+      response.warning = `${copies - successCount} print jobs failed`;
     }
 
     clearTimeout(requestTimeout);
@@ -665,13 +461,6 @@ app.post('/api/printer', async (req, res) => {
         fs.unlinkSync(tempFilePath);
       } catch (cleanupError) {
         console.error('Failed to cleanup temp file:', cleanupError);
-      }
-    }
-    if (finalImagePath && finalImagePath !== tempFilePath && fs.existsSync(finalImagePath)) {
-      try {
-        fs.unlinkSync(finalImagePath);
-      } catch (cleanupError) {
-        console.error('Failed to cleanup processed file:', cleanupError);
       }
     }
 

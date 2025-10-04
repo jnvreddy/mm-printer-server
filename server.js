@@ -89,88 +89,27 @@ const printFile = (filePath, options = {}) => {
 
     console.log(`Printing to ${printer}: ${copies} copies of ${paperSize} (DNP size: ${actualPaperSize}, cut: ${cutEnabled})`);
 
-    // Method 1: Use mspaint to print - very reliable for images
+    // Use simple mspaint command with better debugging
     const printCommand = `mspaint /p "${filePath}"`;
 
-    console.log(`Executing print command: ${printCommand}`);
+    console.log(`Executing mspaint print command: ${printCommand}`);
 
-    // Add timeout to prevent hanging
-    const timeout = setTimeout(() => {
-      console.log('Print command timed out, trying alternative method...');
-      // Try alternative method immediately
-      tryAlternativeMethod();
-    }, 10000); // 10 second timeout
-
-    const tryAlternativeMethod = () => {
-      clearTimeout(timeout);
-      // Method 2: Use PowerShell with Start-Process and Print verb
-      const altScript = `
-        $process = Start-Process -FilePath '${filePath.replace(/\\/g, '\\\\')}' -Verb Print -PassThru -WindowStyle Hidden
-        $process.WaitForExit(5000)
-        if ($process.ExitCode -eq 0) { Write-Output "Print job queued successfully" }
-      `;
-
-      const altCommand = `powershell.exe -Command "${altScript}"`;
-
-      exec(altCommand, { timeout: 15000 }, (altError, altStdout, altStderr) => {
-        if (altError) {
-          console.error(`Alternative print error:`, altError);
-          // Method 3: Use Windows ShellExecute via rundll32
-          console.log('Trying final fallback method...');
-
-          const fallbackCommand = `rundll32.exe shell32.dll,ShellExec_RunDLL "${filePath}"`;
-
-          exec(fallbackCommand, { timeout: 10000 }, (fallbackError, fallbackStdout, fallbackStderr) => {
-            if (fallbackError) {
-              console.error(`Fallback print error:`, fallbackError);
-              reject(new Error(`All print methods failed: ${fallbackError.message}`));
-              return;
-            }
-
-            console.log('Fallback print method succeeded');
-            resolve({
-              success: true,
-              copies: copies,
-              paperSize: actualPaperSize,
-              cutEnabled: cutEnabled,
-              requestedSize: paperSize,
-              queued: true,
-              message: 'Print job queued via fallback method'
-            });
-          });
-          return;
-        }
-
-        console.log('Alternative print method succeeded');
-        console.log('Alternative output:', altStdout);
-        resolve({
-          success: true,
-          copies: copies,
-          paperSize: actualPaperSize,
-          cutEnabled: cutEnabled,
-          requestedSize: paperSize,
-          queued: true,
-          message: 'Print job queued via alternative method'
-        });
-      });
-    };
-
-    exec(printCommand, { timeout: 10000 }, (error, stdout, stderr) => {
-      clearTimeout(timeout);
+    exec(printCommand, { timeout: 15000 }, (error, stdout, stderr) => {
       if (error) {
-        console.error(`Print error:`, error);
-        // Try alternative method if mspaint fails
-        tryAlternativeMethod();
+        console.error(`mspaint print error:`, error);
+        console.error(`Error details:`, error.message);
+        reject(new Error(`Print failed: ${error.message}`));
         return;
       }
 
       if (stderr) {
-        console.warn(`Print warning:`, stderr);
+        console.warn(`mspaint warning:`, stderr);
       }
 
-      console.log(`Successfully sent print job to printer ${printer} with size ${actualPaperSize}`);
-      console.log('Print output:', stdout);
+      console.log(`mspaint stdout:`, stdout);
+      console.log(`mspaint stderr:`, stderr);
 
+      console.log(`Successfully sent print job to printer ${printer} with size ${actualPaperSize}`);
       resolve({
         success: true,
         copies: copies,
@@ -178,7 +117,7 @@ const printFile = (filePath, options = {}) => {
         cutEnabled: cutEnabled,
         requestedSize: paperSize,
         queued: true,
-        message: 'Print job queued successfully'
+        message: 'Print job queued successfully via mspaint'
       });
     });
   });
@@ -207,6 +146,16 @@ const checkPrintQueue = (printerName) => {
         return;
       }
 
+      console.log(`Queue check raw output:`, stdout);
+      console.log(`Queue check stderr:`, stderr);
+
+      // Handle empty output
+      if (!stdout || stdout.trim() === '') {
+        console.log(`No print jobs found in queue for ${printerName}`);
+        resolve([]);
+        return;
+      }
+
       try {
         const jobs = JSON.parse(stdout);
         const jobList = Array.isArray(jobs) ? jobs : [jobs];
@@ -214,6 +163,7 @@ const checkPrintQueue = (printerName) => {
         resolve(jobList);
       } catch (parseErr) {
         console.error("JSON parse failed for queue:", parseErr);
+        console.error("Raw output that failed to parse:", stdout);
         resolve([]);
       }
     });

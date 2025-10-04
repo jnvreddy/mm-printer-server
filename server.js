@@ -662,27 +662,6 @@ app.post('/api/printer', async (req, res) => {
       return res.status(500).json({ success: false, error: 'Failed to save image' });
     }
 
-    // Also save to Prints folder for backup
-    try {
-      const printsDir = path.join(__dirname, 'Prints');
-
-      // Ensure Prints directory exists
-      if (!fs.existsSync(printsDir)) {
-        fs.mkdirSync(printsDir, { recursive: true });
-        console.log(`Created Prints directory: ${printsDir}`);
-      }
-
-      // Generate unique filename with timestamp
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const printsImagePath = path.join(printsDir, `print-${timestamp}.jpg`);
-
-      // Save the original image to Prints folder
-      fs.writeFileSync(printsImagePath, req.body);
-      console.log(`Saved image to Prints folder: ${printsImagePath}`);
-    } catch (saveError) {
-      console.error('Failed to save image to Prints folder:', saveError);
-      // Continue with printing even if saving to Prints fails
-    }
 
     // Create temporary file for compatibility (but use saved image for printing)
     tempFilePath = path.join(__dirname, `temp_${Date.now()}.jpg`);

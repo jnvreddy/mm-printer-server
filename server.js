@@ -112,9 +112,40 @@ const printFile = (filePath, savedImagePath, options = {}) => {
         }
         Write-Output "Input file exists"
         
-        # Load the image
-        $image = [System.Drawing.Image]::FromFile($inputPath)
-        Write-Output "Loaded image: $($image.Width)x$($image.Height)"
+        # Load the image with error handling
+        try {
+          # Try loading as Bitmap first (more reliable)
+          $image = New-Object System.Drawing.Bitmap($inputPath)
+          Write-Output "Loaded image as Bitmap: $($image.Width)x$($image.Height)"
+          Write-Output "Image format: $($image.PixelFormat)"
+          
+          # Test if image is valid
+          if ($image.Width -eq 0 -or $image.Height -eq 0) {
+            throw "Image has zero dimensions"
+          }
+          
+          # Get multiple sample pixels to verify image has data
+          $samplePixel1 = $image.GetPixel(0, 0)
+          $samplePixel2 = $image.GetPixel($image.Width/2, $image.Height/2)
+          $samplePixel3 = $image.GetPixel($image.Width-1, $image.Height-1)
+          
+          Write-Output "Sample pixel 1 (0,0): R=$($samplePixel1.R), G=$($samplePixel1.G), B=$($samplePixel1.B)"
+          Write-Output "Sample pixel 2 (center): R=$($samplePixel2.R), G=$($samplePixel2.G), B=$($samplePixel2.B)"
+          Write-Output "Sample pixel 3 (end): R=$($samplePixel3.R), G=$($samplePixel3.G), B=$($samplePixel3.B)"
+          
+          # Check if image is all white (corrupted)
+          if ($samplePixel1.R -eq 255 -and $samplePixel1.G -eq 255 -and $samplePixel1.B -eq 255 -and
+              $samplePixel2.R -eq 255 -and $samplePixel2.G -eq 255 -and $samplePixel2.B -eq 255) {
+            Write-Warning "Image appears to be all white - this may indicate a corrupted file"
+            Write-Output "File size: $((Get-Item $inputPath).Length) bytes"
+            Write-Output "File last modified: $((Get-Item $inputPath).LastWriteTime)"
+          }
+          
+          Write-Output "Image validation completed"
+        } catch {
+          Write-Error "Failed to load or validate image: $($_.Exception.Message)"
+          exit 1
+        }
         
         # Create PrintDocument (exactly like LumaBooth Assistant)
         $printDocument = New-Object System.Drawing.Printing.PrintDocument
@@ -220,29 +251,144 @@ const printFile = (filePath, savedImagePath, options = {}) => {
           Write-Output "Using default paper size"
         }
         
+        # Add BeginPrint event to ensure PrintPage fires
+        $printDocument.add_BeginPrint({
+          param($sender, $e)
+          Write-Output "=== BeginPrint event triggered ==="
+        })
+        
+        # Add EndPrint event for completion
+        $printDocument.add_EndPrint({
+          param($sender, $e)
+          Write-Output "=== EndPrint event triggered ==="
+        })
+        
         # Handle PrintPage event (exactly like LumaBooth Assistant)
         $printDocument.add_PrintPage({
           param($sender, $e)
           
-          Write-Output "PrintPage event triggered"
+          Write-Output "=== PrintPage event triggered ==="
+          Write-Output "Sender: $($sender.GetType().Name)"
+          Write-Output "Event args: $($e.GetType().Name)"
           Write-Output "Page bounds: $($e.PageBounds)"
           Write-Output "Margin bounds: $($e.MarginBounds)"
+          Write-Output "Image size: $($downloadsImage.Width) x $($downloadsImage.Height)"
           
-          # Draw image to fill ENTIRE page (no margins)
-          $e.Graphics.DrawImage($image, $e.PageBounds)
-          Write-Output "Image drawn to fill entire page"
+          # Calculate proper scaling to fill page while maintaining aspect ratio
+          $pageWidth = $e.PageBounds.Width
+          $pageHeight = $e.PageBounds.Height
+          $imageWidth = $downloadsImage.Width
+          $imageHeight = $downloadsImage.Height
+          
+          Write-Output "Page: $pageWidth x $pageHeight, Image: $imageWidth x $imageHeight"
+          
+          # Calculate scale factors
+          $scaleX = $pageWidth / $imageWidth
+          $scaleY = $pageHeight / $imageHeight
+          
+          # Use the larger scale to fill the page completely (may crop slightly)
+          $scale = [Math]::Max($scaleX, $scaleY)
+          
+          $scaledWidth = $imageWidth * $scale
+          $scaledHeight = $imageHeight * $scale
+          
+          # Center the scaled image on the page
+          $x = ($pageWidth - $scaledWidth) / 2
+          $y = ($pageHeight - $scaledHeight) / 2
+          
+          Write-Output "Scale: $scale, Scaled: $scaledWidth x $scaledHeight, Position: $x, $y"
+          
+          # Set high quality rendering
+          $e.Graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+          $e.Graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
+          $e.Graphics.CompositingQuality = [System.Drawing.Drawing2D.CompositingQuality]::HighQuality
+          Write-Output "Set high quality rendering modes"
+          
+          # Try multiple drawing methods for reliability
+          try {
+            # Method 1: Draw with explicit scaling
+            Write-Output "Attempting Method 1: Explicit scaling"
+            $e.Graphics.DrawImage($downloadsImage, $x, $y, $scaledWidth, $scaledHeight)
+            Write-Output "Method 1 successful: Image drawn with scaling"
+          } catch {
+            Write-Output "Method 1 failed: $($_.Exception.Message)"
+            try {
+              # Method 2: Draw to full page bounds
+              Write-Output "Attempting Method 2: Full page bounds"
+              $e.Graphics.DrawImage($downloadsImage, 0, 0, $pageWidth, $pageHeight)
+              Write-Output "Method 2 successful: Image drawn to full page"
+            } catch {
+              Write-Output "Method 2 failed: $($_.Exception.Message)"
+              # Method 3: Draw with source and destination rectangles
+              Write-Output "Attempting Method 3: Source/destination rectangles"
+              $srcRect = New-Object System.Drawing.Rectangle(0, 0, $imageWidth, $imageHeight)
+              $destRect = New-Object System.Drawing.Rectangle(0, 0, $pageWidth, $pageHeight)
+              $e.Graphics.DrawImage($downloadsImage, $destRect, $srcRect, [System.Drawing.GraphicsUnit]::Pixel)
+              Write-Output "Method 3 successful: Image drawn with rectangles"
+            }
+          }
           
           $e.HasMorePages = $false
         })
-        Write-Output "Added PrintPage event handler"
+        Write-Output "Added BeginPrint, EndPrint, and PrintPage event handlers"
         
-        # Print the document (this sends to Windows printer spooler)
-        Write-Output "Starting print job..."
-        $printDocument.Print()
-        Write-Output "Print job completed successfully"
+        # Use the Downloads folder image directly (don't create new images)
+        Write-Output "Using Downloads folder image directly for LumaBooth-style printing..."
+        
+        # Dispose of the current image since we'll load from Downloads folder
+        $image.Dispose()
+        Write-Output "Disposed of current image, will load from Downloads folder"
+        
+        # Load the image directly from Downloads folder
+        $downloadsImage = New-Object System.Drawing.Bitmap($inputPath)
+        Write-Output "Loaded Downloads folder image: $($downloadsImage.Width)x$($downloadsImage.Height)"
+        
+        # Verify the Downloads image has content
+        $samplePixel = $downloadsImage.GetPixel($downloadsImage.Width/2, $downloadsImage.Height/2)
+        Write-Output "Downloads image sample pixel: R=$($samplePixel.R), G=$($samplePixel.G), B=$($samplePixel.B)"
+        
+        # Print the document using Downloads image
+        Write-Output "Starting print job with Downloads image..."
+        
+        # Force PrintPage event to fire by using PreviewPrintController first
+        Write-Output "Setting up PreviewPrintController to force PrintPage event..."
+        $printDocument.PrintController = New-Object System.Drawing.Printing.PreviewPrintController
+        
+        try {
+          # Try with PreviewPrintController first (this should force PrintPage to fire)
+          Write-Output "Attempting print with PreviewPrintController..."
+          $printDocument.Print()
+          Write-Output "PreviewPrintController print completed successfully"
+          
+          # Now try actual printing with StandardPrintController
+          Write-Output "Setting up StandardPrintController for actual printing..."
+          $printDocument.PrintController = New-Object System.Drawing.Printing.StandardPrintController
+          
+          Write-Output "Attempting actual print with StandardPrintController..."
+          $printDocument.Print()
+          Write-Output "StandardPrintController print completed successfully"
+          
+        } catch {
+          Write-Output "Print failed: $($_.Exception.Message)"
+          try {
+            # Try with default PrintController
+            Write-Output "Attempting with default PrintController..."
+            $printDocument.PrintController = $null
+            $printDocument.Print()
+            Write-Output "Default PrintController print completed successfully"
+          } catch {
+            Write-Error "All print methods failed: $($_.Exception.Message)"
+            Write-Output "Exception type: $($_.Exception.GetType().Name)"
+            Write-Output "Stack trace: $($_.Exception.StackTrace)"
+            exit 1
+          }
+        }
+        
+        # Cleanup Downloads image
+        $downloadsImage.Dispose()
+        Write-Output "Cleaned up Downloads image"
         
         # Cleanup
-        $image.Dispose()
         $printDocument.Dispose()
         Write-Output "Cleaned up resources"
         
@@ -322,7 +468,7 @@ const printFile = (filePath, savedImagePath, options = {}) => {
 const safeGetPrinters = async () => {
   try {
     const printers = await getPrinters();
-    console.log("Detected printers:", printers);
+    console.log("Detected printers:");
     return printers;
   } catch (err) {
     console.error('Failed to fetch printers:', err);

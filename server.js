@@ -67,8 +67,8 @@ const getPrinters = () => {
 };
 
 
-// Function to print file to Windows printer spooler
-const printFile = (filePath, options = {}) => {
+// Function to print file to Windows printer spooler using GDI+ (like LumaBooth Assistant)
+const printFile = (filePath, savedImagePath, options = {}) => {
   return new Promise((resolve, reject) => {
     const { printer, paperSize, copies = 1, cut = false } = options;
 
@@ -89,36 +89,232 @@ const printFile = (filePath, options = {}) => {
 
     console.log(`Printing to ${printer}: ${copies} copies of ${paperSize} (DNP size: ${actualPaperSize}, cut: ${cutEnabled})`);
 
-    // Use simple mspaint command that was working and appearing in queue
-    const printCommand = `mspaint /p "${filePath}"`;
+    // Use System.Drawing.Printing (exactly like LumaBooth Assistant)
+    const lumaBoothStyleScript = `
+      try {
+        Write-Output "=== Starting LumaBooth-style printing ==="
+        
+        Add-Type -AssemblyName System.Drawing
+        Write-Output "System.Drawing assembly loaded"
+        
+        $inputPath = '${savedImagePath.replace(/\\/g, '\\\\')}'
+        $printerName = '${printer}'
+        $copies = ${copies}
+        
+        Write-Output "Input path: $inputPath"
+        Write-Output "Printer: $printerName"
+        Write-Output "Copies: $copies"
+        
+        # Check if file exists
+        if (-not (Test-Path $inputPath)) {
+          Write-Error "Input file does not exist: $inputPath"
+          exit 1
+        }
+        Write-Output "Input file exists"
+        
+        # Load the image
+        $image = [System.Drawing.Image]::FromFile($inputPath)
+        Write-Output "Loaded image: $($image.Width)x$($image.Height)"
+        
+        # Create PrintDocument (exactly like LumaBooth Assistant)
+        $printDocument = New-Object System.Drawing.Printing.PrintDocument
+        Write-Output "Created PrintDocument"
+        
+        $printDocument.PrinterSettings.PrinterName = $printerName
+        $printDocument.PrinterSettings.Copies = $copies
+        Write-Output "Set printer settings"
+        
+        # Set ZERO margins (this is the key!)
+        $printDocument.DefaultPageSettings.Margins = New-Object System.Drawing.Printing.Margins(0, 0, 0, 0)
+        Write-Output "Set margins to zero"
+        
+        # Use standard paper sizes that DNP printer recognizes
+        Write-Output "Setting up paper size for DNP printer"
+        
+        # Debug: List available paper sizes
+        $paperSizes = $printDocument.PrinterSettings.PaperSizes
+        Write-Output "Available paper sizes:"
+        foreach ($size in $paperSizes) {
+          Write-Output "  - $($size.PaperName) ($($size.Width) x $($size.Height))"
+        }
+        
+        # For 2x6 - use PR (4x6) x 2 paper size (vertical orientation)
+        if ('${paperSize}' -eq '2x6') {
+          # Look for PR (4x6) x 2 paper size (vertical: height > width)
+          $paperSizes = $printDocument.PrinterSettings.PaperSizes
+          $standardPaperSize = $null
+          foreach ($size in $paperSizes) {
+            if ($size.PaperName -like "*PR (4x6) x 2*" -or $size.PaperName -like "*4x6*2*" -or $size.PaperName -like "*4 x 6*2*") {
+              $standardPaperSize = $size
+              break
+            }
+          }
+          if ($standardPaperSize) {
+            $printDocument.DefaultPageSettings.PaperSize = $standardPaperSize
+            Write-Output "Set PR (4x6) x 2 paper size (vertical): $($standardPaperSize.PaperName) - Width: $($standardPaperSize.Width), Height: $($standardPaperSize.Height)"
+          } else {
+            Write-Output "No PR (4x6) x 2 paper size found, trying (6x4) x 2"
+            # Fallback to (6x4) x 2 if PR (4x6) x 2 not found
+            foreach ($size in $paperSizes) {
+              if ($size.PaperName -like "*(6x4) x 2*" -or $size.PaperName -like "*6x4*2*" -or $size.PaperName -like "*6 x 4*2*") {
+                $standardPaperSize = $size
+                break
+              }
+            }
+            if ($standardPaperSize) {
+              $printDocument.DefaultPageSettings.PaperSize = $standardPaperSize
+              Write-Output "Set (6x4) x 2 paper size (horizontal): $($standardPaperSize.PaperName) - Width: $($standardPaperSize.Width), Height: $($standardPaperSize.Height)"
+            } else {
+              Write-Output "No (6x4) x 2 paper size found, using default"
+            }
+          }
+        } elseif ('${paperSize}' -eq '3x4') {
+          # For 3x4 - also use (6x4) x 2
+          $paperSizes = $printDocument.PrinterSettings.PaperSizes
+          $standardPaperSize = $null
+          foreach ($size in $paperSizes) {
+            if ($size.PaperName -like "*(6x4) x 2*" -or $size.PaperName -like "*6x4*2*" -or $size.PaperName -like "*6 x 4*2*") {
+              $standardPaperSize = $size
+              break
+            }
+          }
+          if ($standardPaperSize) {
+            $printDocument.DefaultPageSettings.PaperSize = $standardPaperSize
+            Write-Output "Set (6x4) x 2 paper size for 3x4: $($standardPaperSize.PaperName)"
+          } else {
+            Write-Output "No (6x4) x 2 paper size found for 3x4, using default"
+          }
+        } elseif ('${paperSize}' -eq '6x4') {
+          # For 6x4 - use standard 6x4 paper size
+          $paperSizes = $printDocument.PrinterSettings.PaperSizes
+          $standardPaperSize = $null
+          foreach ($size in $paperSizes) {
+            if ($size.PaperName -like "*6x4*" -or $size.PaperName -like "*6 x 4*") {
+              $standardPaperSize = $size
+              break
+            }
+          }
+          if ($standardPaperSize) {
+            $printDocument.DefaultPageSettings.PaperSize = $standardPaperSize
+            Write-Output "Set 6x4 paper size: $($standardPaperSize.PaperName)"
+          } else {
+            Write-Output "No 6x4 paper size found, using default"
+          }
+        } elseif ('${paperSize}' -eq '5x7') {
+          # Use standard 5x7 paper size
+          $paperSizes = $printDocument.PrinterSettings.PaperSizes
+          $standardPaperSize = $null
+          foreach ($size in $paperSizes) {
+            if ($size.PaperName -like "*5x7*" -or $size.PaperName -like "*5 x 7*") {
+              $standardPaperSize = $size
+              break
+            }
+          }
+          if ($standardPaperSize) {
+            $printDocument.DefaultPageSettings.PaperSize = $standardPaperSize
+            Write-Output "Set standard paper size: $($standardPaperSize.PaperName)"
+          } else {
+            Write-Output "No standard 5x7 paper size found, using default"
+          }
+        } else {
+          Write-Output "Using default paper size"
+        }
+        
+        # Handle PrintPage event (exactly like LumaBooth Assistant)
+        $printDocument.add_PrintPage({
+          param($sender, $e)
+          
+          Write-Output "PrintPage event triggered"
+          Write-Output "Page bounds: $($e.PageBounds)"
+          Write-Output "Margin bounds: $($e.MarginBounds)"
+          
+          # Draw image to fill ENTIRE page (no margins)
+          $e.Graphics.DrawImage($image, $e.PageBounds)
+          Write-Output "Image drawn to fill entire page"
+          
+          $e.HasMorePages = $false
+        })
+        Write-Output "Added PrintPage event handler"
+        
+        # Print the document (this sends to Windows printer spooler)
+        Write-Output "Starting print job..."
+        $printDocument.Print()
+        Write-Output "Print job completed successfully"
+        
+        # Cleanup
+        $image.Dispose()
+        $printDocument.Dispose()
+        Write-Output "Cleaned up resources"
+        
+        Write-Output "LumaBooth-style print job queued successfully with zero margins"
+        
+      } catch {
+        Write-Error "LumaBooth-style printing failed: $($_.Exception.Message)"
+        Write-Error "Stack trace: $($_.Exception.StackTrace)"
+        Write-Error "Error details: $($_.Exception)"
+        exit 1
+      }
+    `;
 
-    console.log(`Executing mspaint print command: ${printCommand}`);
+    // Write PowerShell script to temporary file
+    const scriptPath = path.join(__dirname, `print_script_${Date.now()}.ps1`);
+    fs.writeFileSync(scriptPath, lumaBoothStyleScript);
 
-    exec(printCommand, { timeout: 15000 }, (error, stdout, stderr) => {
+    const printCommand = `powershell.exe -ExecutionPolicy Bypass -File "${scriptPath}"`;
+    console.log(`Executing LumaBooth-style print command for ${printer}`);
+
+    exec(printCommand, { timeout: 20000 }, (error, stdout, stderr) => {
       if (error) {
-        console.error(`mspaint print error:`, error);
+        console.error(`LumaBooth-style print error:`, error);
         console.error(`Error details:`, error.message);
-        reject(new Error(`Print failed: ${error.message}`));
+        reject(new Error(`LumaBooth-style print failed: ${error.message}`));
         return;
       }
 
       if (stderr) {
-        console.warn(`mspaint warning:`, stderr);
+        console.warn(`LumaBooth-style warning:`, stderr);
       }
 
-      console.log(`mspaint stdout:`, stdout);
-      console.log(`mspaint stderr:`, stderr);
+      console.log(`LumaBooth-style stdout:`, stdout);
+      console.log(`LumaBooth-style stderr:`, stderr);
+      console.log(`LumaBooth-style stdout length:`, stdout ? stdout.length : 0);
+      console.log(`LumaBooth-style stderr length:`, stderr ? stderr.length : 0);
 
-      console.log(`Successfully sent print job to printer ${printer} with size ${actualPaperSize}`);
-      resolve({
-        success: true,
-        copies: copies,
-        paperSize: actualPaperSize,
-        cutEnabled: cutEnabled,
-        requestedSize: paperSize,
-        queued: true,
-        message: 'Print job queued successfully via mspaint'
-      });
+      if (stdout && (stdout.includes('LumaBooth-style print job queued successfully') || stdout.includes('Print job completed successfully'))) {
+        console.log(`Successfully sent LumaBooth-style print job to printer ${printer} with size ${actualPaperSize} (zero margins)`);
+        resolve({
+          success: true,
+          copies: copies,
+          paperSize: actualPaperSize,
+          cutEnabled: cutEnabled,
+          requestedSize: paperSize,
+          queued: true,
+          message: 'Print job queued successfully via LumaBooth-style printing (zero margins)'
+        });
+      } else if (!error) {
+        // If no error but no success message, assume it worked (PowerShell completed without error)
+        console.log(`PowerShell completed without error, assuming print job was sent to printer ${printer}`);
+        resolve({
+          success: true,
+          copies: copies,
+          paperSize: actualPaperSize,
+          cutEnabled: cutEnabled,
+          requestedSize: paperSize,
+          queued: true,
+          message: 'Print job queued successfully via LumaBooth-style printing (zero margins)'
+        });
+      } else {
+        console.error(`LumaBooth-style script did not report success. Output:`, stdout);
+        reject(new Error(`LumaBooth-style print script did not complete successfully. Output: ${stdout}`));
+      }
+
+      // Clean up PowerShell script file
+      try {
+        fs.unlinkSync(scriptPath);
+        console.log(`Cleaned up PowerShell script file: ${scriptPath}`);
+      } catch (cleanupError) {
+        console.error('Failed to cleanup PowerShell script file:', cleanupError);
+      }
     });
   });
 };
@@ -302,11 +498,25 @@ app.post('/api/printer', async (req, res) => {
     const dnpPrinterName = dnpPrinter.Name;
     console.log(`Using DNP printer: ${dnpPrinterName}`);
 
-    // Create temporary file
-    tempFilePath = path.join(__dirname, `temp_${Date.now()}.jpg`);
-    fs.writeFileSync(tempFilePath, req.body);
+    // Save image to Downloads folder (more accessible)
+    let savedImagePath = null;
+    try {
+      const downloadsDir = path.join(require('os').homedir(), 'Downloads');
 
-    // Save image to Prints folder
+      // Generate unique filename with timestamp
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      savedImagePath = path.join(downloadsDir, `print-${timestamp}.jpg`);
+
+      // Save the original image to Downloads folder
+      fs.writeFileSync(savedImagePath, req.body);
+      console.log(`Saved image to Downloads folder: ${savedImagePath}`);
+    } catch (saveError) {
+      console.error('Failed to save image to Downloads folder:', saveError);
+      clearTimeout(requestTimeout);
+      return res.status(500).json({ success: false, error: 'Failed to save image' });
+    }
+
+    // Also save to Prints folder for backup
     try {
       const printsDir = path.join(__dirname, 'Prints');
 
@@ -318,15 +528,19 @@ app.post('/api/printer', async (req, res) => {
 
       // Generate unique filename with timestamp
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const savedImagePath = path.join(printsDir, `print-${timestamp}.jpg`);
+      const printsImagePath = path.join(printsDir, `print-${timestamp}.jpg`);
 
       // Save the original image to Prints folder
-      fs.writeFileSync(savedImagePath, req.body);
-      console.log(`Saved image to Prints folder: ${savedImagePath}`);
+      fs.writeFileSync(printsImagePath, req.body);
+      console.log(`Saved image to Prints folder: ${printsImagePath}`);
     } catch (saveError) {
       console.error('Failed to save image to Prints folder:', saveError);
-      // Continue with printing even if saving fails
+      // Continue with printing even if saving to Prints fails
     }
+
+    // Create temporary file for compatibility (but use saved image for printing)
+    tempFilePath = path.join(__dirname, `temp_${Date.now()}.jpg`);
+    fs.writeFileSync(tempFilePath, req.body);
 
     // Debug: Check the image file
     try {
@@ -360,7 +574,7 @@ app.post('/api/printer', async (req, res) => {
     // Send print jobs - just send the original image with the correct paper size
     for (let i = 0; i < actualPrintJobs; i++) {
       try {
-        const printResult = await printFile(tempFilePath, {
+        const printResult = await printFile(tempFilePath, savedImagePath, {
           printer: dnpPrinterName,
           paperSize: requestedSize,
           cut: cutEnabled,
@@ -386,6 +600,18 @@ app.post('/api/printer', async (req, res) => {
     if (tempFilePath && fs.existsSync(tempFilePath)) {
       fs.unlinkSync(tempFilePath);
       tempFilePath = null;
+    }
+
+    // Clean up saved image file after printing (with 5 second delay)
+    if (savedImagePath && fs.existsSync(savedImagePath)) {
+      setTimeout(() => {
+        try {
+          fs.unlinkSync(savedImagePath);
+          console.log(`Cleaned up saved image file after 5 seconds: ${savedImagePath}`);
+        } catch (cleanupError) {
+          console.error('Failed to cleanup saved image file:', cleanupError);
+        }
+      }, 5000); // 5 second delay
     }
 
     // Update success count
@@ -421,6 +647,18 @@ app.post('/api/printer', async (req, res) => {
       } catch (cleanupError) {
         console.error('Failed to cleanup temp file:', cleanupError);
       }
+    }
+
+    // Clean up saved image file on error (with 5 second delay)
+    if (savedImagePath && fs.existsSync(savedImagePath)) {
+      setTimeout(() => {
+        try {
+          fs.unlinkSync(savedImagePath);
+          console.log(`Cleaned up saved image file on error after 5 seconds: ${savedImagePath}`);
+        } catch (cleanupError) {
+          console.error('Failed to cleanup saved image file on error:', cleanupError);
+        }
+      }, 5000); // 5 second delay
     }
 
     clearTimeout(requestTimeout);

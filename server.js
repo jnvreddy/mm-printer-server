@@ -398,11 +398,13 @@ app.post('/api/printer', async (req, res) => {
 
     let successCount = 0;
     let actualPrintJobs = copies;
+    let copiesPerJob = 1;
 
     // For 2x6 size, halve the number of print jobs since each job produces 2 copies
     if (requestedSize === '2x6') {
       actualPrintJobs = copies / 2;
-      console.log(`2x6 size: requesting ${copies} copies, sending ${actualPrintJobs} print jobs (2 copies per job)`);
+      copiesPerJob = 1; // Each print job shows as 1 copy in queue, but produces 2 physical prints
+      console.log(`2x6 size: requesting ${copies} copies, sending ${actualPrintJobs} print jobs (1 copy per job, 2 physical prints per job)`);
     }
 
     // Send print jobs - just send the original image with the correct paper size
@@ -412,7 +414,7 @@ app.post('/api/printer', async (req, res) => {
           printer: dnpPrinterName,
           paperSize: requestedSize,
           cut: cutEnabled,
-          copies: 1
+          copies: copiesPerJob
         });
         successCount++;
         console.log(`Print job ${i + 1} result:`, printResult);

@@ -89,7 +89,7 @@ const printFile = (filePath, options = {}) => {
 
     console.log(`Printing to ${printer}: ${copies} copies of ${paperSize} (DNP size: ${actualPaperSize}, cut: ${cutEnabled})`);
 
-    // Use simple mspaint command with better debugging
+    // Use simple mspaint command that was working and appearing in queue
     const printCommand = `mspaint /p "${filePath}"`;
 
     console.log(`Executing mspaint print command: ${printCommand}`);

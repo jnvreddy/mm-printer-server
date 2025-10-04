@@ -97,7 +97,7 @@ const printFile = (filePath, savedImagePath, options = {}) => {
         Add-Type -AssemblyName System.Drawing
         Write-Output "System.Drawing assembly loaded"
         
-        $inputPath = '${savedImagePath.replace(/\\/g, '\\\\')}'
+        $inputPath = '${filePath.replace(/\\/g, '\\\\')}'
         $printerName = '${printer}'
         $copies = ${copies}
         
@@ -402,8 +402,8 @@ const printFile = (filePath, savedImagePath, options = {}) => {
       }
     `;
 
-    // Write PowerShell script to temporary file
-    const scriptPath = path.join(__dirname, `print_script_${Date.now()}.ps1`);
+    // Write PowerShell script to temporary file (use system temp directory for packaged apps)
+    const scriptPath = path.join(require('os').tmpdir(), `print_script_${Date.now()}.ps1`);
     fs.writeFileSync(scriptPath, lumaBoothStyleScript);
 
     const printCommand = `powershell.exe -ExecutionPolicy Bypass -File "${scriptPath}"`;
@@ -644,27 +644,10 @@ app.post('/api/printer', async (req, res) => {
     const dnpPrinterName = dnpPrinter.Name;
     console.log(`Using DNP printer: ${dnpPrinterName}`);
 
-    // Save image to Downloads folder (more accessible)
-    let savedImagePath = null;
-    try {
-      const downloadsDir = path.join(require('os').homedir(), 'Downloads');
-
-      // Generate unique filename with timestamp
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      savedImagePath = path.join(downloadsDir, `print-${timestamp}.jpg`);
-
-      // Save the original image to Downloads folder
-      fs.writeFileSync(savedImagePath, req.body);
-      console.log(`Saved image to Downloads folder: ${savedImagePath}`);
-    } catch (saveError) {
-      console.error('Failed to save image to Downloads folder:', saveError);
-      clearTimeout(requestTimeout);
-      return res.status(500).json({ success: false, error: 'Failed to save image' });
-    }
 
 
-    // Create temporary file for compatibility (but use saved image for printing)
-    tempFilePath = path.join(__dirname, `temp_${Date.now()}.jpg`);
+    // Create temporary file for compatibility (use system temp directory for packaged apps)
+    tempFilePath = path.join(require('os').tmpdir(), `temp_${Date.now()}.jpg`);
     fs.writeFileSync(tempFilePath, req.body);
 
     // Debug: Check the image file
@@ -699,7 +682,7 @@ app.post('/api/printer', async (req, res) => {
     // Send print jobs - just send the original image with the correct paper size
     for (let i = 0; i < actualPrintJobs; i++) {
       try {
-        const printResult = await printFile(tempFilePath, savedImagePath, {
+        const printResult = await printFile(tempFilePath, tempFilePath, {
           printer: dnpPrinterName,
           paperSize: requestedSize,
           cut: cutEnabled,
@@ -727,17 +710,6 @@ app.post('/api/printer', async (req, res) => {
       tempFilePath = null;
     }
 
-    // Clean up saved image file after printing (with 5 second delay)
-    if (savedImagePath && fs.existsSync(savedImagePath)) {
-      setTimeout(() => {
-        try {
-          fs.unlinkSync(savedImagePath);
-          console.log(`Cleaned up saved image file after 5 seconds: ${savedImagePath}`);
-        } catch (cleanupError) {
-          console.error('Failed to cleanup saved image file:', cleanupError);
-        }
-      }, 5000); // 5 second delay
-    }
 
     // Update success count
     successfulPrintCount += successCount;
@@ -774,17 +746,6 @@ app.post('/api/printer', async (req, res) => {
       }
     }
 
-    // Clean up saved image file on error (with 5 second delay)
-    if (savedImagePath && fs.existsSync(savedImagePath)) {
-      setTimeout(() => {
-        try {
-          fs.unlinkSync(savedImagePath);
-          console.log(`Cleaned up saved image file on error after 5 seconds: ${savedImagePath}`);
-        } catch (cleanupError) {
-          console.error('Failed to cleanup saved image file on error:', cleanupError);
-        }
-      }, 5000); // 5 second delay
-    }
 
     clearTimeout(requestTimeout);
     res.status(500).json({
